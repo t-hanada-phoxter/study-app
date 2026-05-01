@@ -1,16 +1,34 @@
-# React + Vite
+# 使い方
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## App.jsx
+`src/App.jsx` をこのファイルで置き換えてください。
 
-Currently, two official plugins are available:
+## App.css
+`src/App.css` をこのファイルで置き換えてください。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## questions_sample.csv
+Googleスプレッドシートの `questions` シートに貼り付けてください。
 
-## React Compiler
+## main.jsx
+通常のVite構成なら、`src/main.jsx` で以下のようにApp.cssを読み込んでください。
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import './App.css'
+import App from './App.jsx'
 
-## Expanding the ESLint configuration
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## デプロイ
+```powershell
+npm run build
+git add .
+git commit -m "complete study app"
+git push
+```
