@@ -4,27 +4,31 @@ const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
 
 function parseCsv(csvText) {
-  const lines = csvText.trim().split("\n");
-  const headers = lines[0].split(",");
+  const lines = csvText.trim().split(/\r?\n/);
 
-  return lines.slice(1).map((line) => {
-    const values = line.split(",");
+  return lines.slice(1)
+    .filter(line => line.trim() !== "")
+    .map((line) => {
 
-    const row = {};
-    headers.forEach((header, index) => {
-      row[header.trim()] = values[index]?.trim() ?? "";
+      // CSV対応（ダブルクォート対応）
+      const values = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)
+        .map(v => v.replace(/^"|"$/g, ""));
+
+      return {
+        id: values[0] ?? "",
+        subject: values[1] ?? "",
+        unit: values[2] ?? "",
+        question: values[3] ?? "",
+        choices: [
+          values[4] ?? "",
+          values[5] ?? "",
+          values[6] ?? "",
+          values[7] ?? "",
+        ],
+        answerIndex: Number(values[8] ?? "1") - 1,
+        explanation: values[9] ?? "",
+      };
     });
-
-    return {
-      id: row.id,
-      subject: row.subject,
-      unit: row.unit,
-      question: row.question,
-      choices: [row.choice1, row.choice2, row.choice3, row.choice4],
-      answerIndex: Number(row.answer) - 1,
-      explanation: row.explanation,
-    };
-  });
 }
 
 export default function App() {
