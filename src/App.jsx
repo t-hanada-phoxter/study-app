@@ -63,7 +63,7 @@ export default function App() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>óŒ±ƒJ[ƒh</h1>
+      <h1 style={styles.title}>å—é¨“ã‚«ãƒ¼ãƒ‰</h1>
 
       <div style={styles.card}>
         <div style={styles.meta}>
@@ -93,7 +93,7 @@ export default function App() {
 
         {answered && (
           <div style={styles.explanation}>
-            {selectedIndex === question.answerIndex ? "³‰ğI" : "•s³‰ğ"}
+            {selectedIndex === question.answerIndex ? "æ­£è§£ï¼" : "ä¸æ­£è§£"}
             <br />
             {question.explanation}
           </div>
@@ -101,7 +101,7 @@ export default function App() {
 
         {answered && (
           <button onClick={next} style={styles.nextButton}>
-            Ÿ‚Ì–â‘è‚Ö
+            æ¬¡ã®å•é¡Œã¸
           </button>
         )}
       </div>
