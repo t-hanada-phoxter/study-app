@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1Z3FAgGz6eK9ukPE9syQbLgnoEe7m1YgO4kTnyn0_Qnw/edit?usp=sharing";
+const SHEET_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
 
 function parseCsv(csvText) {
   const lines = csvText.trim().split("\n");
