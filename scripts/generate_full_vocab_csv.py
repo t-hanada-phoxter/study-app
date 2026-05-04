@@ -152,6 +152,31 @@ def clean_text(value):
     return re.sub(r"\s+", " ", value).strip()
 
 
+DIRECT_TRANSLATION_HINTS = {
+    "spark": {"スパーク", "スパークする"},
+}
+
+
+def clean_meaning(value, word=""):
+    meaning = clean_text(value)
+    meaning = re.sub(r"（[^）]*(?:⇔|⇒|≒|→|←)[^）]*）", "", meaning)
+    meaning = re.sub(r"\([^)]*(?:⇔|⇒|≒|→|←)[^)]*\)", "", meaning)
+    meaning = re.sub(r"(?:⇔|⇒|≒|→|←)[^；;、,]*", "", meaning)
+
+    word_hints = DIRECT_TRANSLATION_HINTS.get(word.lower(), set())
+    if word_hints:
+        parts = re.split(r"([；;、,])", meaning)
+        kept = []
+        for index in range(0, len(parts), 2):
+            part = parts[index].strip()
+            delimiter = parts[index + 1] if index + 1 < len(parts) else ""
+            if part and not any(hint in part for hint in word_hints):
+                kept.append(part + delimiter)
+        meaning = "".join(kept).rstrip("；;、, ")
+
+    return re.sub(r"\s+", " ", meaning).strip("；;、, ")
+
+
 def normalize_word(word):
     word = clean_text(word)
     return re.sub(r"^[^A-Za-z]+|[^A-Za-z\- ]+$", "", word).strip()
@@ -177,7 +202,7 @@ def difficulty_for_index(index, total):
 
 
 def make_question(meaning, source_name, word):
-    hint = clean_text(meaning)
+    hint = clean_meaning(meaning, word)
     if len(hint) > 90:
         hint = hint[:90].rstrip() + "..."
     if hint:
@@ -192,7 +217,7 @@ def build_rows(items, prefix, source_name, unit):
 
     for index, item in enumerate(items):
         word = item["word"]
-        meaning = item.get("meaning", "")
+        meaning = clean_meaning(item.get("meaning", ""), word)
         distractors = []
         step = 7
         cursor = (index + step) % total
@@ -224,7 +249,7 @@ def build_rows(items, prefix, source_name, unit):
                 "choice7": distractors[5],
                 "choice8": distractors[6],
                 "answer": "1",
-                "explanation": f"{word} が正解です。意味の中心を確認し、例文の中で使えるようにしましょう。",
+                "explanation": f"{word} が正解です。意味の中心を確認しましょう。",
                 "tags": ",".join(choose_tags(word, meaning)),
                 "difficulty": str(difficulty_for_index(index, total)),
                 "enabled": "true",
@@ -235,13 +260,13 @@ def build_rows(items, prefix, source_name, unit):
 
 
 def build_translation_rows(items, prefix, source_name, unit):
-    meanings = [clean_text(item.get("meaning", "")) or item["word"] for item in items]
+    meanings = [clean_meaning(item.get("meaning", ""), item["word"]) or item["word"] for item in items]
     rows = []
     total = len(items)
 
     for index, item in enumerate(items):
         word = item["word"]
-        meaning = clean_text(item.get("meaning", "")) or word
+        meaning = clean_meaning(item.get("meaning", ""), word) or word
         distractors = []
         step = 11
         cursor = (index + step) % total
@@ -293,7 +318,7 @@ def load_ukaru_items():
     items = []
     for number, word_html, meaning_html in pattern.findall(source):
         word = normalize_word(word_html)
-        meaning = clean_text(meaning_html)
+        meaning = clean_meaning(meaning_html, word)
         if word and re.search(r"[A-Za-z]", word):
             items.append({"number": int(number), "word": word, "meaning": meaning})
 
@@ -307,7 +332,7 @@ def load_motitown_items():
     items = []
     for row in source:
         word = normalize_word(row.get("english", ""))
-        meaning = clean_text(row.get("translation", ""))
+        meaning = clean_meaning(row.get("translation", ""), word)
         if word and re.search(r"[A-Za-z]", word):
             items.append({"word": word, "meaning": meaning})
 

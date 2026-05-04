@@ -163,6 +163,37 @@ function readTags(row) {
   return unique(values.flatMap((value) => normalizeTags(value)));
 }
 
+const DIRECT_TRANSLATION_HINTS = ["スパークする", "スパーク"];
+
+function cleanLearningText(value) {
+  let text = String(value || "");
+  text = text.replace(/（[^）]*(?:⇔|⇒|≒|→|←)[^）]*）/g, "");
+  text = text.replace(/\([^)]*(?:⇔|⇒|≒|→|←)[^)]*\)/g, "");
+  text = text.replace(/(?:⇔|⇒|≒|→|←)[^；;、,\n]*/g, "");
+
+  for (const hint of DIRECT_TRANSLATION_HINTS) {
+    if (!text.includes(hint)) continue;
+    const parts = text.split(/([；;、,])/);
+    text = parts
+      .reduce((kept, part, index) => {
+        if (index % 2 === 1) return kept;
+        const delimiter = parts[index + 1] || "";
+        const trimmed = part.trim();
+        if (trimmed && !DIRECT_TRANSLATION_HINTS.some((item) => trimmed.includes(item))) {
+          kept.push(trimmed + delimiter);
+        }
+        return kept;
+      }, [])
+      .join("");
+  }
+
+  return text
+    .replace("意味の中心を確認し、例文の中で使えるようにしましょう。", "意味の中心を確認しましょう。")
+    .replace(/\s+/g, " ")
+    .replace(/[；;、,]\s*$/g, "")
+    .trim();
+}
+
 function shuffle(values) {
   const next = [...values];
   for (let i = next.length - 1; i > 0; i--) {
@@ -220,16 +251,24 @@ function parseCsv(csvText) {
         row[header] = values[index] ?? "";
       });
 
+      const originalAnswerIndex = Number(pick(row, ["answer"], "1")) - 1;
+      const choiceItems = Array.from({ length: 8 }, (_, index) => ({
+        originalIndex: index,
+        text: cleanLearningText(pick(row, [`choice${index + 1}`])),
+      })).filter((choice) => choice.text);
+      const answerIndex = choiceItems.findIndex((choice) => choice.originalIndex === originalAnswerIndex);
+      const choices = choiceItems.map((choice) => choice.text);
+
       return {
         id: pick(row, ["id"]),
         subject: pick(row, ["subject"], "英語"),
         unit: pick(row, ["unit"], "英単語"),
         largeCategory: pick(row, ["largeCategory", "category1", "majorCategory", "term", "semester"], "基礎"),
         middleCategory: pick(row, ["middleCategory", "category2", "minorCategory", "range", "scope"], ""),
-        question: pick(row, ["question"]),
-        choices: Array.from({ length: 8 }, (_, index) => pick(row, [`choice${index + 1}`])).filter(Boolean),
-        answerIndex: Number(pick(row, ["answer"], "1")) - 1,
-        explanation: pick(row, ["explanation"]),
+        question: cleanLearningText(pick(row, ["question"])),
+        choices,
+        answerIndex,
+        explanation: cleanLearningText(pick(row, ["explanation"])),
         difficulty: Number(pick(row, ["difficulty"], "1")),
         tags: readTags(row),
         enabled: pick(row, ["enabled"], "true").toLowerCase() !== "false",

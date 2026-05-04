@@ -559,12 +559,15 @@ button { cursor: pointer; }
 
 .mascotFace {
   position: relative;
-  width: 82px;
-  height: 72px;
-  border-radius: 48% 48% 50% 50%;
-  background: linear-gradient(145deg, #ffffff, #f3f4f6);
-  border: 3px solid #111827;
-  box-shadow: 0 12px 24px rgba(17, 24, 39, .14);
+  width: 86px;
+  height: 76px;
+  border-radius: 46px 46px 42px 42px;
+  background:
+    radial-gradient(circle at 30% 68%, #ffd6d6 0 7px, transparent 8px),
+    radial-gradient(circle at 70% 68%, #ffd6d6 0 7px, transparent 8px),
+    linear-gradient(145deg, #fffdf7, #fff7ed);
+  border: 3px solid #3f2d20;
+  box-shadow: 0 14px 24px rgba(255, 138, 0, .22), inset 0 -5px 0 rgba(255, 176, 0, .16);
   transform: translateY(0) scale(.95);
   transition: transform .2s ease;
 }
@@ -576,29 +579,30 @@ button { cursor: pointer; }
 .pandaEar {
   content: "";
   position: absolute;
-  top: -13px;
-  width: 25px;
-  height: 25px;
+  top: -12px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
-  background: #111827;
+  background: radial-gradient(circle at 40% 42%, #ffe4e6 0 7px, #3f2d20 8px);
+  border: 2px solid #3f2d20;
   z-index: -1;
 }
 
 .pandaEar.left {
-  left: 3px;
+  left: 2px;
 }
 
 .pandaEar.right {
-  right: 3px;
+  right: 2px;
 }
 
 .pandaPatch {
   position: absolute;
   top: 20px;
-  width: 24px;
-  height: 26px;
-  border-radius: 55% 55% 60% 60%;
-  background: #111827;
+  width: 25px;
+  height: 24px;
+  border-radius: 70% 60% 70% 60%;
+  background: #3f2d20;
   transform: rotate(18deg);
 }
 
@@ -614,11 +618,12 @@ button { cursor: pointer; }
 
 .mascotEye {
   position: absolute;
-  top: 28px;
-  width: 7px;
-  height: 10px;
+  top: 29px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  background: white;
+  background: #fffdf7;
+  box-shadow: 2px -2px 0 0 rgba(255, 255, 255, .7);
   z-index: 1;
 }
 
@@ -628,11 +633,11 @@ button { cursor: pointer; }
 .pandaNose {
   position: absolute;
   left: 50%;
-  top: 43px;
+  top: 42px;
   width: 12px;
-  height: 8px;
+  height: 9px;
   border-radius: 999px;
-  background: #111827;
+  background: #3f2d20;
   transform: translateX(-50%);
 }
 
@@ -642,7 +647,7 @@ button { cursor: pointer; }
   bottom: 10px;
   width: 22px;
   height: 10px;
-  border-bottom: 4px solid #111827;
+  border-bottom: 4px solid #3f2d20;
   border-radius: 0 0 999px 999px;
   transform: translateX(-50%);
 }
@@ -652,13 +657,16 @@ button { cursor: pointer; }
   bottom: 10px;
   height: 14px;
   border: 0;
-  background: #111827;
+  background: linear-gradient(#3f2d20 0 55%, #fb7185 56%);
   border-radius: 0 0 999px 999px;
 }
 
 .mascot.sad .mascotFace {
   transform: translateY(2px) scale(.95) rotate(2deg);
-  background: linear-gradient(145deg, #ffffff, #e5e7eb);
+  background:
+    radial-gradient(circle at 30% 68%, #fecaca 0 7px, transparent 8px),
+    radial-gradient(circle at 70% 68%, #fecaca 0 7px, transparent 8px),
+    linear-gradient(145deg, #fffdf7, #fee2e2);
 }
 
 .mascot.sad .mascotEye {
@@ -669,7 +677,7 @@ button { cursor: pointer; }
 
 .mascot.sad .mascotMouth {
   bottom: 9px;
-  border-top: 4px solid #111827;
+  border-top: 4px solid #3f2d20;
   border-bottom: 0;
   border-radius: 999px 999px 0 0;
 }
