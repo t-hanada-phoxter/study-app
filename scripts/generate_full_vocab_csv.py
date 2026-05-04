@@ -128,8 +128,8 @@ FIELDNAMES = [
     "id",
     "subject",
     "unit",
-    "term",
-    "range",
+    "largeCategory",
+    "middleCategory",
     "question",
     "choice1",
     "choice2",
@@ -163,17 +163,13 @@ def choose_tags(word, meaning=""):
     return tags or [GENERIC_TAGS[sum(ord(char) for char in word) % len(GENERIC_TAGS)]]
 
 
-def term_for_index(index, total):
+def large_category_for_index(index, total):
     ratio = index / max(total, 1)
     if ratio < 1 / 3:
-        return "1学期"
+        return "基礎"
     if ratio < 2 / 3:
-        return "2学期"
-    return "3学期"
-
-
-def range_for_index(index):
-    return ["範囲A", "範囲B", "範囲C", "範囲D", "範囲E"][index % 5]
+        return "標準"
+    return "発展"
 
 
 def difficulty_for_index(index, total):
@@ -216,8 +212,8 @@ def build_rows(items, prefix, source_name, unit):
                 "id": f"{prefix}_{index + 1:04d}",
                 "subject": "英語",
                 "unit": unit,
-                "term": term_for_index(index, total),
-                "range": range_for_index(index),
+                "largeCategory": large_category_for_index(index, total),
+                "middleCategory": "",
                 "question": make_question(meaning, source_name, word),
                 "choice1": word,
                 "choice2": distractors[0],
@@ -265,8 +261,8 @@ def build_translation_rows(items, prefix, source_name, unit):
                 "id": f"{prefix}_ja_{index + 1:04d}",
                 "subject": "英語",
                 "unit": f"{unit} 和訳",
-                "term": term_for_index(index, total),
-                "range": range_for_index(index),
+                "largeCategory": large_category_for_index(index, total),
+                "middleCategory": "",
                 "question": f"次の英単語の意味として最も適切なものを選びなさい: {word}",
                 "choice1": meaning,
                 "choice2": distractors[0],
@@ -345,17 +341,17 @@ def main():
         "英単語 共通テスト頻出",
     )
 
-    write_csv(ROOT / "public" / "questions_target1900_all.csv", ukaru_rows)
-    write_csv(ROOT / "public" / "questions_common_important_all.csv", motitown_rows)
-    write_csv(ROOT / "public" / "questions_vocab_all_sources.csv", ukaru_rows + motitown_rows)
-    write_csv(ROOT / "public" / "questions_target1900_translation_all.csv", ukaru_translation_rows)
-    write_csv(ROOT / "public" / "questions_common_important_translation_all.csv", motitown_translation_rows)
+    write_csv(ROOT / "public" / "questions_target1900_generic_all.csv", ukaru_rows)
+    write_csv(ROOT / "public" / "questions_common_important_generic_all.csv", motitown_rows)
+    write_csv(ROOT / "public" / "questions_vocab_generic_all_sources.csv", ukaru_rows + motitown_rows)
+    write_csv(ROOT / "public" / "questions_target1900_translation_generic_all.csv", ukaru_translation_rows)
+    write_csv(ROOT / "public" / "questions_common_important_translation_generic_all.csv", motitown_translation_rows)
     write_csv(
-        ROOT / "public" / "questions_vocab_translation_all_sources.csv",
+        ROOT / "public" / "questions_vocab_translation_generic_all_sources.csv",
         ukaru_translation_rows + motitown_translation_rows,
     )
     write_csv(
-        ROOT / "public" / "questions_vocab_all_sources_with_translation.csv",
+        ROOT / "public" / "questions_vocab_generic_all_sources_with_translation.csv",
         ukaru_rows + motitown_rows + ukaru_translation_rows + motitown_translation_rows,
     )
 

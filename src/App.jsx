@@ -7,6 +7,8 @@ const SHEET_CSV_URL =
 const CURRENT_USER_KEY = "studyApp.currentUser.v4";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
+const SLOW_ANSWER_MS = 3000;
+const SESSION_SIZE = 25;
 const DEFAULT_USERS = ["user1", "user2", "user3", "user4", "user5"];
 
 const FALLBACK_QUESTIONS = [
@@ -14,8 +16,8 @@ const FALLBACK_QUESTIONS = [
     id: "eng_vocab_t1_a_001",
     subject: "英語",
     unit: "英単語",
-    term: "1学期",
-    range: "範囲A",
+    largeCategory: "基礎語彙",
+    middleCategory: "日常・学校",
     question: "次の文の空所に入る最も適切な語を選びなさい: The new library is within walking distance, so it is very _____ for students.",
     choices: ["convenient", "confident", "constant", "creative", "ordinary", "distant", "expensive", "familiar"],
     answerIndex: 0,
@@ -28,8 +30,8 @@ const FALLBACK_QUESTIONS = [
     id: "eng_vocab_t1_a_002",
     subject: "英語",
     unit: "英単語",
-    term: "1学期",
-    range: "範囲A",
+    largeCategory: "基礎語彙",
+    middleCategory: "IT・情報",
     question: "次の英文の下線部に最も近い意味を選びなさい: The teacher asked us to examine the data carefully.",
     choices: ["look at", "throw away", "wait for", "laugh at", "depend on", "give up", "turn off", "write down"],
     answerIndex: 0,
@@ -42,8 +44,8 @@ const FALLBACK_QUESTIONS = [
     id: "eng_vocab_t1_b_001",
     subject: "英語",
     unit: "英単語",
-    term: "1学期",
-    range: "範囲B",
+    largeCategory: "社会語彙",
+    middleCategory: "環境",
     question: "次の文の空所に入る最も適切な語を選びなさい: Many people are concerned about the _____ of plastic waste on marine life.",
     choices: ["impact", "entrance", "schedule", "permission", "habit", "surface", "address", "journey"],
     answerIndex: 0,
@@ -56,8 +58,8 @@ const FALLBACK_QUESTIONS = [
     id: "eng_grammar_t1_a_001",
     subject: "英語",
     unit: "英文法",
-    term: "1学期",
-    range: "範囲A",
+    largeCategory: "文法",
+    middleCategory: "時制",
     question: "次の文が自然な英文になるように選びなさい: I have never seen such a beautiful sunset _____ I visited Okinawa.",
     choices: ["since", "while", "because", "although", "unless", "before", "until", "if"],
     answerIndex: 0,
@@ -70,8 +72,8 @@ const FALLBACK_QUESTIONS = [
     id: "eng_reading_t1_a_001",
     subject: "英語",
     unit: "読解",
-    term: "1学期",
-    range: "範囲A",
+    largeCategory: "読解",
+    middleCategory: "要旨把握",
     question: "本文要旨問題: A student says that studying with short breaks helped her remember more. What is the main point?",
     choices: [
       "Taking planned breaks can improve learning.",
@@ -191,6 +193,17 @@ function matchesTag(question, selectedTag) {
   return !selectedTag || question.tags?.includes(selectedTag);
 }
 
+function matchesDifficulty(question, selectedDifficulty) {
+  return !selectedDifficulty || Number(question.difficulty) === Number(selectedDifficulty);
+}
+
+function matchesCategory(question, selectedLargeCategory, selectedMiddleCategory) {
+  return (
+    (!selectedLargeCategory || question.largeCategory === selectedLargeCategory) &&
+    (!selectedMiddleCategory || question.middleCategory === selectedMiddleCategory)
+  );
+}
+
 function parseCsv(csvText) {
   const lines = csvText.trim().split(/\r?\n/).filter((line) => line.trim() !== "");
   if (lines.length <= 1) return [];
@@ -211,8 +224,8 @@ function parseCsv(csvText) {
         id: pick(row, ["id"]),
         subject: pick(row, ["subject"], "英語"),
         unit: pick(row, ["unit"], "英単語"),
-        term: pick(row, ["term", "semester", "period", "gradeTerm"], "1学期"),
-        range: pick(row, ["range", "scope", "section", "area"], "範囲A"),
+        largeCategory: pick(row, ["largeCategory", "category1", "majorCategory", "term", "semester"], "基礎"),
+        middleCategory: pick(row, ["middleCategory", "category2", "minorCategory", "range", "scope"], ""),
         question: pick(row, ["question"]),
         choices: Array.from({ length: 8 }, (_, index) => pick(row, [`choice${index + 1}`])).filter(Boolean),
         answerIndex: Number(pick(row, ["answer"], "1")) - 1,
@@ -256,16 +269,16 @@ function updateDailyStats(history, isCorrect, meta) {
     correct: 0,
     wrong: 0,
     quick: 0,
+    slow: 0,
     hesitated: 0,
-    confidenceTotal: 0,
   };
 
   current.studied += 1;
   if (isCorrect) current.correct += 1;
   else current.wrong += 1;
   if (meta.responseTimeMs <= QUICK_ANSWER_MS) current.quick += 1;
+  if (meta.responseTimeMs >= SLOW_ANSWER_MS) current.slow += 1;
   if (meta.hesitated) current.hesitated += 1;
-  current.confidenceTotal += meta.confidence;
 
   return {
     ...history,
@@ -281,7 +294,7 @@ function computeNextSchedule(item, isCorrect, meta) {
   const wrong = item.wrong || 0;
   const streak = item.streak || 0;
   const ease = item.ease ?? 2.2;
-  const shakyCorrect = isCorrect && (meta.hesitated || meta.confidence <= 2 || meta.responseTimeMs > 10000);
+  const shakyCorrect = isCorrect && (meta.hesitated || meta.responseTimeMs > 10000);
 
   if (!isCorrect) {
     return {
@@ -336,17 +349,19 @@ function updateHistory(userName, questionId, isCorrect, meta) {
     lastAnsweredAt: null,
     answeredCount: 0,
     quickCount: 0,
+    slowCount: 0,
+    lastSlow: false,
     hesitatedCount: 0,
-    confidenceTotal: 0,
     responseTimeTotalMs: 0,
   };
 
   const updated = { ...current };
   updated.answeredCount += 1;
   updated.responseTimeTotalMs += meta.responseTimeMs;
-  updated.confidenceTotal += meta.confidence;
   if (meta.hesitated) updated.hesitatedCount += 1;
   if (meta.responseTimeMs <= QUICK_ANSWER_MS) updated.quickCount += 1;
+  if (meta.responseTimeMs >= SLOW_ANSWER_MS) updated.slowCount = (updated.slowCount || 0) + 1;
+  updated.lastSlow = meta.responseTimeMs >= SLOW_ANSWER_MS;
   if (!updated.firstAnsweredAt) updated.firstAnsweredAt = new Date().toISOString();
 
   if (isCorrect) {
@@ -401,13 +416,19 @@ function isWeakQuestion(q, history) {
   );
 }
 
+function isSlowQuestion(q, history) {
+  const h = getQuestionHistory(history, q.id);
+  if (!h) return false;
+  const avgResponseMs = h.answeredCount ? (h.responseTimeTotalMs || 0) / h.answeredCount : 0;
+  return h.lastSlow === true || (h.slowCount || 0) >= 2 || avgResponseMs >= SLOW_ANSWER_MS;
+}
+
 function scoreQuestion(q, history) {
   const h = getQuestionHistory(history, q.id);
   if (!h) return 95 + (q.difficulty || 0) * 3;
 
   const due = daysUntil(h.nextReviewAt) <= 0;
   const overdueDays = Math.max(0, -daysUntil(h.nextReviewAt));
-  const avgConfidence = h.answeredCount ? (h.confidenceTotal || 0) / h.answeredCount : 3;
   const avgResponseMs = h.answeredCount ? (h.responseTimeTotalMs || 0) / h.answeredCount : 0;
 
   let score = 0;
@@ -416,8 +437,9 @@ function scoreQuestion(q, history) {
   score += (h.weakWeight || 0);
   score += (h.wrong || 0) * 22;
   score += (h.hesitatedCount || 0) * 12;
-  score += Math.max(0, 3 - avgConfidence) * 12;
-  if (avgResponseMs > 10000) score += 14;
+  score += (h.slowCount || 0) * 10;
+  if (h.lastSlow) score += 18;
+  if (avgResponseMs >= SLOW_ANSWER_MS) score += 16;
   score += Math.max(0, 3 - (h.streak || 0)) * 10;
   if ((h.wrong || 0) >= 2 && (h.streak || 0) >= 2) score += 35;
   if (!due) score -= 80;
@@ -434,6 +456,12 @@ function filterByMode(questions, history, mode) {
   }
 
   if (mode === "new") return questions.filter((q) => !getQuestionHistory(history, q.id));
+
+  if (mode === "slow") {
+    return questions
+      .filter((q) => isSlowQuestion(q, history))
+      .sort((a, b) => scoreQuestion(b, history) - scoreQuestion(a, history));
+  }
 
   if (mode === "review") {
     return questions
@@ -463,12 +491,13 @@ function buildCalendarDays(year, month) {
 function countStats(list, history) {
   const studied = list.filter((q) => getQuestionHistory(history, q.id));
   const weak = list.filter((q) => isWeakQuestion(q, history));
+  const slow = list.filter((q) => isSlowQuestion(q, history));
   const due = list.filter((q) => isDue(q, history) && getQuestionHistory(history, q.id));
   const correct = studied.reduce((sum, q) => sum + (getQuestionHistory(history, q.id)?.correct || 0), 0);
   const wrong = studied.reduce((sum, q) => sum + (getQuestionHistory(history, q.id)?.wrong || 0), 0);
   const rate = correct + wrong === 0 ? 0 : Math.round((correct / (correct + wrong)) * 100);
 
-  return { total: list.length, studied: studied.length, weak: weak.length, due: due.length, rate };
+  return { total: list.length, studied: studied.length, weak: weak.length, slow: slow.length, due: due.length, rate };
 }
 
 export default function App() {
@@ -480,9 +509,10 @@ export default function App() {
   const [history, setHistory] = useState(() => loadHistory(localStorage.getItem(CURRENT_USER_KEY) || ""));
   const [subject, setSubject] = useState("");
   const [unit, setUnit] = useState("");
-  const [term, setTerm] = useState("");
-  const [range, setRange] = useState("");
+  const [largeCategory, setLargeCategory] = useState("");
+  const [middleCategory, setMiddleCategory] = useState("");
   const [selectedTag, setSelectedTag] = useState("");
+  const [selectedDifficulty, setSelectedDifficulty] = useState("");
   const [mode, setMode] = useState("normal");
   const [sessionQuestions, setSessionQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -490,9 +520,9 @@ export default function App() {
   const [showChoices, setShowChoices] = useState(false);
   const [choiceShownAt, setChoiceShownAt] = useState(Date.now());
   const [answerMeta, setAnswerMeta] = useState(null);
-  const [hesitated, setHesitated] = useState(false);
-  const [confidence, setConfidence] = useState(3);
+  const [headerVisible, setHeaderVisible] = useState(false);
   const [result, setResult] = useState({ total: 0, correct: 0, wrong: 0 });
+  const [sessionStreak, setSessionStreak] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
 
   useEffect(() => {
@@ -530,35 +560,73 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [screen, currentIndex]);
 
+  useEffect(() => {
+    let lastY = window.scrollY;
+
+    function handleScroll() {
+      const currentY = window.scrollY;
+      if (currentY < lastY - 6) setHeaderVisible(true);
+      if (currentY > lastY + 6) setHeaderVisible(false);
+      lastY = currentY;
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const subjects = useMemo(() => unique(questions.map((q) => q.subject)), [questions]);
-  const allTags = useMemo(() => unique(questions.flatMap((q) => q.tags || [])), [questions]);
+  const subjectTags = useMemo(
+    () => unique(questions.filter((q) => q.subject === subject).flatMap((q) => q.tags || [])),
+    [questions, subject]
+  );
   const units = useMemo(
     () => unique(questions.filter((q) => q.subject === subject && matchesTag(q, selectedTag)).map((q) => q.unit)),
     [questions, subject, selectedTag]
   );
-  const terms = useMemo(
+  const largeCategories = useMemo(
+    () =>
+      unique(
+        questions
+          .filter(
+            (q) =>
+              q.subject === subject &&
+              q.unit === unit &&
+              matchesTag(q, selectedTag) &&
+              matchesDifficulty(q, selectedDifficulty)
+          )
+          .map((q) => q.largeCategory)
+      ),
+    [questions, subject, unit, selectedTag, selectedDifficulty]
+  );
+  const middleCategories = useMemo(
+    () =>
+      unique(
+        questions
+          .filter(
+            (q) =>
+              q.subject === subject &&
+              q.unit === unit &&
+              matchesTag(q, selectedTag) &&
+              matchesDifficulty(q, selectedDifficulty) &&
+              (!largeCategory || q.largeCategory === largeCategory)
+          )
+          .map((q) => q.middleCategory)
+      ),
+    [questions, subject, unit, selectedTag, selectedDifficulty, largeCategory]
+  );
+  const difficultyLevels = useMemo(
     () =>
       unique(
         questions
           .filter((q) => q.subject === subject && q.unit === unit && matchesTag(q, selectedTag))
-          .map((q) => q.term)
-      ),
+          .map((q) => String(q.difficulty || 1))
+      ).sort((a, b) => Number(a) - Number(b)),
     [questions, subject, unit, selectedTag]
-  );
-  const ranges = useMemo(
-    () =>
-      unique(
-        questions
-          .filter((q) => q.subject === subject && q.unit === unit && q.term === term && matchesTag(q, selectedTag))
-          .map((q) => q.range)
-      ),
-    [questions, subject, unit, term, selectedTag]
   );
   const dueCount = useMemo(
     () =>
-      questions.filter((q) => matchesTag(q, selectedTag) && isDue(q, history) && getQuestionHistory(history, q.id))
-        .length,
-    [questions, history, selectedTag]
+      questions.filter((q) => isDue(q, history) && getQuestionHistory(history, q.id)).length,
+    [questions, history]
   );
 
   function login(name) {
@@ -582,45 +650,40 @@ export default function App() {
   function selectSubject(nextSubject) {
     setSubject(nextSubject);
     setUnit("");
-    setTerm("");
-    setRange("");
+    setLargeCategory("");
+    setMiddleCategory("");
+    setSelectedTag("");
+    setSelectedDifficulty("");
     setScreen("units");
   }
 
   function selectUnit(nextUnit) {
     setUnit(nextUnit);
-    setTerm("");
-    setRange("");
-    setScreen("terms");
+    setLargeCategory("");
+    setMiddleCategory("");
+    setSelectedDifficulty("");
+    setScreen("filters");
   }
 
-  function selectTerm(nextTerm) {
-    setTerm(nextTerm);
-    setRange("");
-    setScreen("ranges");
-  }
-
-  function startStudy(targetRange, targetMode = mode) {
+  function startStudy(targetMode = mode) {
     const base = questions.filter(
       (q) =>
         q.subject === subject &&
         q.unit === unit &&
-        q.term === term &&
-        q.range === targetRange &&
-        matchesTag(q, selectedTag)
+        matchesTag(q, selectedTag) &&
+        matchesDifficulty(q, selectedDifficulty) &&
+        matchesCategory(q, largeCategory, middleCategory)
     );
     const filtered = filterByMode(base, history, targetMode);
     const list = filtered.length > 0 ? filtered : base;
 
-    setRange(targetRange);
     setMode(targetMode);
-    setSessionQuestions(list.slice(0, 10).map(prepareQuestionForSession));
+    setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
     setCurrentIndex(0);
     setSelectedIndex(null);
     setAnswerMeta(null);
-    setHesitated(false);
-    setConfidence(3);
-    setResult({ total: Math.min(list.length, 10), correct: 0, wrong: 0 });
+    setSessionStreak(0);
+    setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
     setScreen("study");
   }
 
@@ -637,39 +700,47 @@ export default function App() {
 
     setSubject("復習");
     setUnit("今日の復習");
-    setTerm("");
-    setRange("");
+    setLargeCategory("");
+    setMiddleCategory("");
     setMode("review");
-    setSessionQuestions(list.slice(0, 10).map(prepareQuestionForSession));
+    setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
     setCurrentIndex(0);
     setSelectedIndex(null);
     setAnswerMeta(null);
-    setHesitated(false);
-    setConfidence(3);
-    setResult({ total: Math.min(list.length, 10), correct: 0, wrong: 0 });
+    setSessionStreak(0);
+    setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
     setScreen("study");
   }
 
   function answer(index) {
     if (selectedIndex !== null || !showChoices) return;
 
-    const q = sessionQuestions[currentIndex];
-    const isCorrect = index === q.answerIndex;
-    const meta = {
+    setSelectedIndex(index);
+    setAnswerMeta({
       responseTimeMs: Date.now() - choiceShownAt,
-      hesitated,
-      confidence,
+    });
+  }
+
+  function finishAnswer(markHesitated) {
+    if (selectedIndex === null || !answerMeta) return;
+
+    const q = sessionQuestions[currentIndex];
+    const isCorrect = selectedIndex === q.answerIndex;
+    const meta = {
+      ...answerMeta,
+      hesitated: markHesitated,
     };
     const newHistory = updateHistory(userName, q.id, isCorrect, meta);
 
-    setSelectedIndex(index);
-    setAnswerMeta(meta);
     setHistory(newHistory);
     setResult((prev) => ({
       ...prev,
       correct: prev.correct + (isCorrect ? 1 : 0),
       wrong: prev.wrong + (isCorrect ? 0 : 1),
     }));
+    setSessionStreak(isCorrect ? sessionStreak + 1 : 0);
+
+    nextQuestion();
   }
 
   function nextQuestion() {
@@ -681,8 +752,6 @@ export default function App() {
     setCurrentIndex((prev) => prev + 1);
     setSelectedIndex(null);
     setAnswerMeta(null);
-    setHesitated(false);
-    setConfidence(3);
   }
 
   function resetHistory() {
@@ -700,8 +769,9 @@ export default function App() {
 
   const currentQuestion = sessionQuestions[currentIndex];
   const answered = selectedIndex !== null;
+  const isCurrentAnswerCorrect = answered && currentQuestion && selectedIndex === currentQuestion.answerIndex;
+  const previewStreak = isCurrentAnswerCorrect ? sessionStreak + 1 : 0;
   const percent = result.total === 0 ? 0 : Math.round((result.correct / result.total) * 100);
-  const currentQHistory = currentQuestion ? getQuestionHistory(history, currentQuestion.id) : null;
   const calendarYear = calendarDate.getFullYear();
   const calendarMonth = calendarDate.getMonth();
   const calendarDays = buildCalendarDays(calendarYear, calendarMonth);
@@ -717,7 +787,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="brandHeader">
+      <header className={`brandHeader ${headerVisible ? "isVisible" : ""}`}>
         <button className="miniButton" onClick={() => (userName ? setScreen("home") : setScreen("login"))}>教科</button>
         <div className="brandCenter">
           <div className="logo">M</div>
@@ -756,7 +826,7 @@ export default function App() {
           <section className="hero">
             <p className="eyebrow">spaced repetition</p>
             <h2>忘れる前に、<br />もう一度。</h2>
-            <p>迷い・自信度・回答時間も見て、間違えやすい問題を再出題します。</p>
+            <p>迷い・回答時間・復習日を見て、間違えやすい問題を再出題します。</p>
           </section>
 
           <button className="reviewNow" onClick={startAllDueReview}>
@@ -765,20 +835,9 @@ export default function App() {
           </button>
           <button className="calendarButton" onClick={() => setScreen("calendar")}>学習カレンダーを見る</button>
 
-          {allTags.length > 0 && (
-            <div className="tagFilter">
-              <button className={selectedTag === "" ? "active" : ""} onClick={() => setSelectedTag("")}>すべて</button>
-              {allTags.map((tag) => (
-                <button key={tag} className={selectedTag === tag ? "active" : ""} onClick={() => setSelectedTag(tag)}>
-                  {tag}
-                </button>
-              ))}
-            </div>
-          )}
-
           <h3 className="sectionTitle">教科を選択</h3>
           {subjects.map((s) => {
-            const stat = countStats(questions.filter((q) => q.subject === s && matchesTag(q, selectedTag)), history);
+            const stat = countStats(questions.filter((q) => q.subject === s), history);
             return (
               <button key={s} className="subjectCard" onClick={() => selectSubject(s)}>
                 <div>
@@ -798,6 +857,20 @@ export default function App() {
             <button onClick={() => setScreen("home")}>‹</button>
             <h2>{subject}</h2>
           </div>
+          {subjectTags.length > 0 && (
+            <>
+              <h3 className="sectionTitle">TAGを選択</h3>
+              <div className="tagFilter">
+                <button className={selectedTag === "" ? "active" : ""} onClick={() => setSelectedTag("")}>すべて</button>
+                {subjectTags.map((tag) => (
+                  <button key={tag} className={selectedTag === tag ? "active" : ""} onClick={() => setSelectedTag(tag)}>
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <h3 className="sectionTitle">Unitを選択</h3>
           {units.map((u) => {
             const stat = countStats(
               questions.filter((q) => q.subject === subject && q.unit === u && matchesTag(q, selectedTag)),
@@ -807,7 +880,7 @@ export default function App() {
               <button key={u} className="unitCard" onClick={() => selectUnit(u)}>
                 <div>
                   <strong>{u}</strong>
-                  <small>{stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 正答率 {stat.rate}%</small>
+                  <small>{stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%</small>
                   <div className="thinBar"><div style={{ width: `${Math.min(100, stat.rate)}%` }} /></div>
                 </div>
                 <span>›</span>
@@ -817,49 +890,127 @@ export default function App() {
         </>
       )}
 
-      {screen === "terms" && (
+      {screen === "filters" && (
         <>
           <div className="pageTitle">
             <button onClick={() => setScreen("units")}>‹</button>
             <h2>{unit}</h2>
-          </div>
-          {terms.map((t) => {
-            const stat = countStats(
-              questions.filter((q) => q.subject === subject && q.unit === unit && q.term === t && matchesTag(q, selectedTag)),
-              history
-            );
-            return (
-              <button key={t} className="unitCard" onClick={() => selectTerm(t)}>
-                <div>
-                  <strong>{t}</strong>
-                  <small>{stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 正答率 {stat.rate}%</small>
-                  <div className="thinBar"><div style={{ width: `${Math.min(100, stat.rate)}%` }} /></div>
-                </div>
-                <span>›</span>
-              </button>
-            );
-          })}
-        </>
-      )}
-
-      {screen === "ranges" && (
-        <>
-          <div className="pageTitle">
-            <button onClick={() => setScreen("terms")}>‹</button>
-            <h2>{term}</h2>
           </div>
 
           <div className="modeTabs">
             <button className={mode === "normal" ? "active" : ""} onClick={() => setMode("normal")}>おすすめ</button>
             <button className={mode === "review" ? "active" : ""} onClick={() => setMode("review")}>復習</button>
             <button className={mode === "weak" ? "active" : ""} onClick={() => setMode("weak")}>苦手</button>
+            <button className={mode === "slow" ? "active" : ""} onClick={() => setMode("slow")}>遅答</button>
             <button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>未学習</button>
           </div>
 
-          {allTags.length > 0 && (
+          {subjectTags.length > 0 && (
+            <>
+              <h3 className="sectionTitle">TAG</h3>
+              <div className="tagFilter compact">
+                <button className={selectedTag === "" ? "active" : ""} onClick={() => setSelectedTag("")}>すべて</button>
+                {subjectTags.map((tag) => (
+                  <button key={tag} className={selectedTag === tag ? "active" : ""} onClick={() => setSelectedTag(tag)}>
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {difficultyLevels.length > 0 && (
+            <>
+              <h3 className="sectionTitle">難易度</h3>
+              <div className="tagFilter compact">
+                <button className={selectedDifficulty === "" ? "active" : ""} onClick={() => setSelectedDifficulty("")}>すべて</button>
+                {difficultyLevels.map((level) => (
+                  <button
+                    key={level}
+                    className={selectedDifficulty === level ? "active" : ""}
+                    onClick={() => setSelectedDifficulty(level)}
+                  >
+                    ★{level}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <h3 className="sectionTitle">大分類</h3>
+          <div className="tagFilter compact">
+            <button
+              className={largeCategory === "" ? "active" : ""}
+              onClick={() => {
+                setLargeCategory("");
+                setMiddleCategory("");
+              }}
+            >
+              すべて
+            </button>
+            {largeCategories.map((category) => (
+              <button
+                key={category}
+                className={largeCategory === category ? "active" : ""}
+                onClick={() => {
+                  setLargeCategory(category);
+                  setMiddleCategory("");
+                }}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          {middleCategories.length > 0 && (
+            <>
+              <h3 className="sectionTitle">中分類</h3>
+              <div className="tagFilter compact">
+                <button className={middleCategory === "" ? "active" : ""} onClick={() => setMiddleCategory("")}>すべて</button>
+                {middleCategories.map((category) => (
+                  <button
+                    key={category}
+                    className={middleCategory === category ? "active" : ""}
+                    onClick={() => setMiddleCategory(category)}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {(() => {
+            const selectedQuestions = questions.filter(
+              (q) =>
+                q.subject === subject &&
+                q.unit === unit &&
+                matchesTag(q, selectedTag) &&
+                matchesDifficulty(q, selectedDifficulty) &&
+                matchesCategory(q, largeCategory, middleCategory)
+            );
+            const stat = countStats(selectedQuestions, history);
+            return (
+              <section className="panel">
+                <h2 className="panelTitle">出題条件</h2>
+                <p className="description">
+                  {stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%
+                </p>
+                <button className="bigPrimary" onClick={() => startStudy()} disabled={stat.total === 0}>
+                  25問で開始
+                </button>
+              </section>
+            );
+          })()}
+        </>
+      )}
+
+      {screen === "legacyRangesRemoved" && (
+        <>
+          {false && subjectTags.length > 0 && (
             <div className="tagFilter compact">
               <button className={selectedTag === "" ? "active" : ""} onClick={() => setSelectedTag("")}>すべて</button>
-              {allTags.map((tag) => (
+              {subjectTags.map((tag) => (
                 <button key={tag} className={selectedTag === tag ? "active" : ""} onClick={() => setSelectedTag(tag)}>
                   {tag}
                 </button>
@@ -867,43 +1018,28 @@ export default function App() {
             </div>
           )}
 
-          {ranges.map((r) => {
-            const stat = countStats(
-              questions.filter(
-                (q) =>
-                  q.subject === subject &&
-                  q.unit === unit &&
-                  q.term === term &&
-                  q.range === r &&
-                  matchesTag(q, selectedTag)
-              ),
-              history
-            );
-            return (
-              <button key={r} className="unitCard" onClick={() => startStudy(r)}>
-                <div>
-                  <strong>{r}</strong>
-                  <small>{stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 正答率 {stat.rate}%</small>
-                  <div className="thinBar"><div style={{ width: `${Math.min(100, stat.rate)}%` }} /></div>
-                </div>
-                <span>開始</span>
-              </button>
-            );
-          })}
         </>
       )}
 
       {screen === "study" && currentQuestion && (
         <>
           <div className="studyTop">
-            <span>{[subject, unit, term, range].filter(Boolean).join(" / ")}</span>
+            <span>{[subject, unit, largeCategory, middleCategory].filter(Boolean).join(" / ")}</span>
             <strong>{currentIndex + 1}/{sessionQuestions.length}</strong>
           </div>
           <div className="progressBar"><div style={{ width: `${((currentIndex + 1) / sessionQuestions.length) * 100}%` }} /></div>
 
           <section className="questionPanel">
             <p className="modeLabel">
-              {mode === "review" ? "復習タイミング" : mode === "normal" ? "おすすめ" : mode === "weak" ? "苦手問題" : "未学習"}
+              {mode === "review"
+                ? "復習タイミング"
+                : mode === "normal"
+                  ? "おすすめ"
+                  : mode === "weak"
+                    ? "苦手問題"
+                    : mode === "slow"
+                      ? "遅答問題"
+                      : "未学習"}
             </p>
             <h2>{currentQuestion.question}</h2>
             {currentQuestion.tags?.length > 0 && (
@@ -911,15 +1047,6 @@ export default function App() {
                 {currentQuestion.tags.map((tag) => <span key={tag}>{tag}</span>)}
               </div>
             )}
-          </section>
-
-          <section className="studyControls">
-            <button className={hesitated ? "active" : ""} onClick={() => setHesitated((v) => !v)}>迷った</button>
-            <label>
-              自信度
-              <input type="range" min="1" max="5" value={confidence} onChange={(e) => setConfidence(Number(e.target.value))} />
-              <strong>{confidence}</strong>
-            </label>
           </section>
 
           {!showChoices && <div className="thinkingPanel">問題を読んで考えてください...</div>}
@@ -949,20 +1076,39 @@ export default function App() {
             <div className="resultModal" role="dialog" aria-modal="true">
               <section className="resultModalContent">
                 <strong>{selectedIndex === currentQuestion.answerIndex ? "正解！" : "不正解"}</strong>
+                <div
+                  className={`mascot panda ${isCurrentAnswerCorrect ? `energy${Math.min(4, previewStreak)}` : "sad"}`}
+                  aria-label={isCurrentAnswerCorrect ? `${previewStreak}問連続正解` : "残念"}
+                >
+                  <div className="mascotFace">
+                    <span className="pandaEar left" />
+                    <span className="pandaEar right" />
+                    <span className="pandaPatch left" />
+                    <span className="pandaPatch right" />
+                    <span className="mascotEye left" />
+                    <span className="mascotEye right" />
+                    <span className="pandaNose" />
+                    <span className="mascotMouth" />
+                  </div>
+                  <div className="mascotShadow" />
+                  <p>{isCurrentAnswerCorrect ? `${previewStreak}問連続！` : "次で取り返そう"}</p>
+                </div>
                 <p>{currentQuestion.explanation}</p>
                 <div className="answerMeta">
                   <span>回答 {answerMeta ? (answerMeta.responseTimeMs / 1000).toFixed(1) : "0.0"}秒</span>
-                  <span>{answerMeta?.hesitated ? "迷った" : "迷いなし"}</span>
-                  <span>自信度 {answerMeta?.confidence}</span>
+                  <span>{isCurrentAnswerCorrect ? "正解" : "不正解"}</span>
                 </div>
-                {currentQHistory && (
-                  <small>
-                    次回復習: {currentQHistory.nextReviewAt || "今日"} / 連続正解: {currentQHistory.streak || 0} / 不正解累計: {currentQHistory.wrong || 0}
-                  </small>
-                )}
-                <button className="bigPrimary" onClick={nextQuestion}>
-                  {currentIndex >= sessionQuestions.length - 1 ? "結果を見る" : "次へ"}
-                </button>
+                <div className="modalActions">
+                  <button
+                    className={`bigSecondary ${answerMeta?.responseTimeMs >= SLOW_ANSWER_MS ? "suggested" : ""}`}
+                    onClick={() => finishAnswer(true)}
+                  >
+                    迷った
+                  </button>
+                  <button className="bigPrimary" onClick={() => finishAnswer(false)}>
+                    {currentIndex >= sessionQuestions.length - 1 ? "結果を見る" : "次へ"}
+                  </button>
+                </div>
               </section>
             </div>
           )}
@@ -972,6 +1118,13 @@ export default function App() {
       {screen === "result" && (
         <>
           <section className="resultPanel">
+            {result.total > 0 && result.correct === result.total && (
+              <div className="perfectBadge">
+                <span>★</span>
+                <strong>全問正解！</strong>
+                <p>すごい集中力です。この調子でいきましょう。</p>
+              </div>
+            )}
             <p>今回の結果</p>
             <h2>{percent}%</h2>
             <div className="resultStats">
