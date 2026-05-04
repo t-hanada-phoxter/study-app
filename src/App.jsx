@@ -17,8 +17,9 @@ const FALLBACK_QUESTIONS = [
     term: "1学期",
     range: "範囲A",
     question: "次の文の空所に入る最も適切な語を選びなさい: The new library is within walking distance, so it is very _____ for students.",
-    choices: ["convenient", "confident", "constant", "creative"],
+    choices: ["convenient", "confident", "constant", "creative", "ordinary", "distant", "expensive", "familiar"],
     answerIndex: 0,
+    tags: ["IT"],
     explanation: "within walking distance から「便利な」を表す convenient が適切です。",
     difficulty: 3,
     enabled: true,
@@ -30,8 +31,9 @@ const FALLBACK_QUESTIONS = [
     term: "1学期",
     range: "範囲A",
     question: "次の英文の下線部に最も近い意味を選びなさい: The teacher asked us to examine the data carefully.",
-    choices: ["look at", "throw away", "wait for", "laugh at"],
+    choices: ["look at", "throw away", "wait for", "laugh at", "depend on", "give up", "turn off", "write down"],
     answerIndex: 0,
+    tags: ["IT", "経済"],
     explanation: "examine は「詳しく調べる」。文脈上 look at carefully に近い意味です。",
     difficulty: 3,
     enabled: true,
@@ -43,8 +45,9 @@ const FALLBACK_QUESTIONS = [
     term: "1学期",
     range: "範囲B",
     question: "次の文の空所に入る最も適切な語を選びなさい: Many people are concerned about the _____ of plastic waste on marine life.",
-    choices: ["impact", "entrance", "schedule", "permission"],
+    choices: ["impact", "entrance", "schedule", "permission", "habit", "surface", "address", "journey"],
     answerIndex: 0,
+    tags: ["環境"],
     explanation: "be concerned about the impact of ... で「...の影響を心配する」という形です。",
     difficulty: 4,
     enabled: true,
@@ -56,8 +59,9 @@ const FALLBACK_QUESTIONS = [
     term: "1学期",
     range: "範囲A",
     question: "次の文が自然な英文になるように選びなさい: I have never seen such a beautiful sunset _____ I visited Okinawa.",
-    choices: ["since", "while", "because", "although"],
+    choices: ["since", "while", "because", "although", "unless", "before", "until", "if"],
     answerIndex: 0,
+    tags: ["環境"],
     explanation: "現在完了 have never seen と過去の起点を表す since の組み合わせです。",
     difficulty: 4,
     enabled: true,
@@ -74,8 +78,13 @@ const FALLBACK_QUESTIONS = [
       "Students should study only at night.",
       "Long classes are always better.",
       "Remembering names is not important.",
+      "Teachers should avoid giving homework.",
+      "Phones are necessary in every class.",
+      "Libraries should close earlier.",
+      "Tests are easier than presentations.",
     ],
     answerIndex: 0,
+    tags: ["IT", "経済"],
     explanation: "短い休憩を入れることで記憶しやすくなった、という主張が中心です。",
     difficulty: 4,
     enabled: true,
@@ -132,6 +141,43 @@ function pick(row, names, fallback = "") {
   return fallback;
 }
 
+function normalizeTags(value) {
+  return String(value || "")
+    .split(/[,、;；\s]+/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function shuffle(values) {
+  const next = [...values];
+  for (let i = next.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+}
+
+function prepareQuestionForSession(question) {
+  const answerChoice = question.choices[question.answerIndex];
+  const distractors = question.choices.filter((choice, index) => index !== question.answerIndex && choice);
+  const picked = shuffle(distractors).slice(0, 3);
+  const displayChoices = shuffle([
+    { text: answerChoice, correct: true },
+    ...picked.map((text) => ({ text, correct: false })),
+  ]);
+
+  return {
+    ...question,
+    allChoices: question.choices,
+    choices: displayChoices.map((choice) => choice.text),
+    answerIndex: displayChoices.findIndex((choice) => choice.correct),
+  };
+}
+
+function matchesTag(question, selectedTag) {
+  return !selectedTag || question.tags?.includes(selectedTag);
+}
+
 function parseCsv(csvText) {
   const lines = csvText.trim().split(/\r?\n/).filter((line) => line.trim() !== "");
   if (lines.length <= 1) return [];
@@ -155,19 +201,15 @@ function parseCsv(csvText) {
         term: pick(row, ["term", "semester", "period", "gradeTerm"], "1学期"),
         range: pick(row, ["range", "scope", "section", "area"], "範囲A"),
         question: pick(row, ["question"]),
-        choices: [
-          pick(row, ["choice1"]),
-          pick(row, ["choice2"]),
-          pick(row, ["choice3"]),
-          pick(row, ["choice4"]),
-        ],
+        choices: Array.from({ length: 8 }, (_, index) => pick(row, [`choice${index + 1}`])).filter(Boolean),
         answerIndex: Number(pick(row, ["answer"], "1")) - 1,
         explanation: pick(row, ["explanation"]),
         difficulty: Number(pick(row, ["difficulty"], "1")),
+        tags: normalizeTags(pick(row, ["tags", "tag", "category", "categories"])),
         enabled: pick(row, ["enabled"], "true").toLowerCase() !== "false",
       };
     })
-    .filter((q) => q.id && q.question && q.choices.every(Boolean) && q.enabled);
+    .filter((q) => q.id && q.question && q.choices.length >= 4 && q.choices[q.answerIndex] && q.enabled);
 }
 
 function loadHistory(userName) {
@@ -427,6 +469,7 @@ export default function App() {
   const [unit, setUnit] = useState("");
   const [term, setTerm] = useState("");
   const [range, setRange] = useState("");
+  const [selectedTag, setSelectedTag] = useState("");
   const [mode, setMode] = useState("normal");
   const [sessionQuestions, setSessionQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -475,26 +518,34 @@ export default function App() {
   }, [screen, currentIndex]);
 
   const subjects = useMemo(() => unique(questions.map((q) => q.subject)), [questions]);
+  const allTags = useMemo(() => unique(questions.flatMap((q) => q.tags || [])), [questions]);
   const units = useMemo(
-    () => unique(questions.filter((q) => q.subject === subject).map((q) => q.unit)),
-    [questions, subject]
+    () => unique(questions.filter((q) => q.subject === subject && matchesTag(q, selectedTag)).map((q) => q.unit)),
+    [questions, subject, selectedTag]
   );
   const terms = useMemo(
-    () => unique(questions.filter((q) => q.subject === subject && q.unit === unit).map((q) => q.term)),
-    [questions, subject, unit]
+    () =>
+      unique(
+        questions
+          .filter((q) => q.subject === subject && q.unit === unit && matchesTag(q, selectedTag))
+          .map((q) => q.term)
+      ),
+    [questions, subject, unit, selectedTag]
   );
   const ranges = useMemo(
     () =>
       unique(
         questions
-          .filter((q) => q.subject === subject && q.unit === unit && q.term === term)
+          .filter((q) => q.subject === subject && q.unit === unit && q.term === term && matchesTag(q, selectedTag))
           .map((q) => q.range)
       ),
-    [questions, subject, unit, term]
+    [questions, subject, unit, term, selectedTag]
   );
   const dueCount = useMemo(
-    () => questions.filter((q) => isDue(q, history) && getQuestionHistory(history, q.id)).length,
-    [questions, history]
+    () =>
+      questions.filter((q) => matchesTag(q, selectedTag) && isDue(q, history) && getQuestionHistory(history, q.id))
+        .length,
+    [questions, history, selectedTag]
   );
 
   function login(name) {
@@ -538,14 +589,19 @@ export default function App() {
 
   function startStudy(targetRange, targetMode = mode) {
     const base = questions.filter(
-      (q) => q.subject === subject && q.unit === unit && q.term === term && q.range === targetRange
+      (q) =>
+        q.subject === subject &&
+        q.unit === unit &&
+        q.term === term &&
+        q.range === targetRange &&
+        matchesTag(q, selectedTag)
     );
     const filtered = filterByMode(base, history, targetMode);
     const list = filtered.length > 0 ? filtered : base;
 
     setRange(targetRange);
     setMode(targetMode);
-    setSessionQuestions(list.slice(0, 10));
+    setSessionQuestions(list.slice(0, 10).map(prepareQuestionForSession));
     setCurrentIndex(0);
     setSelectedIndex(null);
     setAnswerMeta(null);
@@ -556,7 +612,11 @@ export default function App() {
   }
 
   function startAllDueReview() {
-    const list = filterByMode(questions, history, "review");
+    const list = filterByMode(
+      questions.filter((q) => matchesTag(q, selectedTag)),
+      history,
+      "review"
+    );
     if (list.length === 0) {
       alert("今日の復習対象はありません。");
       return;
@@ -567,7 +627,7 @@ export default function App() {
     setTerm("");
     setRange("");
     setMode("review");
-    setSessionQuestions(list.slice(0, 10));
+    setSessionQuestions(list.slice(0, 10).map(prepareQuestionForSession));
     setCurrentIndex(0);
     setSelectedIndex(null);
     setAnswerMeta(null);
@@ -692,9 +752,20 @@ export default function App() {
           </button>
           <button className="calendarButton" onClick={() => setScreen("calendar")}>学習カレンダーを見る</button>
 
+          {allTags.length > 0 && (
+            <div className="tagFilter">
+              <button className={selectedTag === "" ? "active" : ""} onClick={() => setSelectedTag("")}>すべて</button>
+              {allTags.map((tag) => (
+                <button key={tag} className={selectedTag === tag ? "active" : ""} onClick={() => setSelectedTag(tag)}>
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+
           <h3 className="sectionTitle">教科を選択</h3>
           {subjects.map((s) => {
-            const stat = countStats(questions.filter((q) => q.subject === s), history);
+            const stat = countStats(questions.filter((q) => q.subject === s && matchesTag(q, selectedTag)), history);
             return (
               <button key={s} className="subjectCard" onClick={() => selectSubject(s)}>
                 <div>
@@ -715,7 +786,10 @@ export default function App() {
             <h2>{subject}</h2>
           </div>
           {units.map((u) => {
-            const stat = countStats(questions.filter((q) => q.subject === subject && q.unit === u), history);
+            const stat = countStats(
+              questions.filter((q) => q.subject === subject && q.unit === u && matchesTag(q, selectedTag)),
+              history
+            );
             return (
               <button key={u} className="unitCard" onClick={() => selectUnit(u)}>
                 <div>
@@ -737,7 +811,10 @@ export default function App() {
             <h2>{unit}</h2>
           </div>
           {terms.map((t) => {
-            const stat = countStats(questions.filter((q) => q.subject === subject && q.unit === unit && q.term === t), history);
+            const stat = countStats(
+              questions.filter((q) => q.subject === subject && q.unit === unit && q.term === t && matchesTag(q, selectedTag)),
+              history
+            );
             return (
               <button key={t} className="unitCard" onClick={() => selectTerm(t)}>
                 <div>
@@ -766,9 +843,27 @@ export default function App() {
             <button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>未学習</button>
           </div>
 
+          {allTags.length > 0 && (
+            <div className="tagFilter compact">
+              <button className={selectedTag === "" ? "active" : ""} onClick={() => setSelectedTag("")}>すべて</button>
+              {allTags.map((tag) => (
+                <button key={tag} className={selectedTag === tag ? "active" : ""} onClick={() => setSelectedTag(tag)}>
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+
           {ranges.map((r) => {
             const stat = countStats(
-              questions.filter((q) => q.subject === subject && q.unit === unit && q.term === term && q.range === r),
+              questions.filter(
+                (q) =>
+                  q.subject === subject &&
+                  q.unit === unit &&
+                  q.term === term &&
+                  q.range === r &&
+                  matchesTag(q, selectedTag)
+              ),
               history
             );
             return (
@@ -798,6 +893,11 @@ export default function App() {
               {mode === "review" ? "復習タイミング" : mode === "normal" ? "おすすめ" : mode === "weak" ? "苦手問題" : "未学習"}
             </p>
             <h2>{currentQuestion.question}</h2>
+            {currentQuestion.tags?.length > 0 && (
+              <div className="questionTags">
+                {currentQuestion.tags.map((tag) => <span key={tag}>{tag}</span>)}
+              </div>
+            )}
           </section>
 
           <section className="studyControls">
