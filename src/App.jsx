@@ -143,9 +143,22 @@ function pick(row, names, fallback = "") {
 
 function normalizeTags(value) {
   return String(value || "")
-    .split(/[,、;；\s]+/)
+    .split(/[|｜,、;；\s]+/)
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function readTags(row) {
+  const values = [
+    pick(row, ["tags", "tag", "TAG", "TAGS", "category", "categories"]),
+    pick(row, ["tag1", "TAG1", "tag_1"]),
+    pick(row, ["tag2", "TAG2", "tag_2"]),
+    pick(row, ["tag3", "TAG3", "tag_3"]),
+    pick(row, ["tag4", "TAG4", "tag_4"]),
+    pick(row, ["tag5", "TAG5", "tag_5"]),
+  ];
+
+  return unique(values.flatMap((value) => normalizeTags(value)));
 }
 
 function shuffle(values) {
@@ -205,7 +218,7 @@ function parseCsv(csvText) {
         answerIndex: Number(pick(row, ["answer"], "1")) - 1,
         explanation: pick(row, ["explanation"]),
         difficulty: Number(pick(row, ["difficulty"], "1")),
-        tags: normalizeTags(pick(row, ["tags", "tag", "category", "categories"])),
+        tags: readTags(row),
         enabled: pick(row, ["enabled"], "true").toLowerCase() !== "false",
       };
     })
