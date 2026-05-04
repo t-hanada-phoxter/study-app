@@ -357,6 +357,60 @@ button { cursor: pointer; }
 
 .choiceList { display: grid; gap: 12px; }
 
+.thinkingPanel,
+.studyControls {
+  background: rgba(255,255,255,.94);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: 0 10px 24px rgba(120, 53, 15, .07);
+}
+
+.thinkingPanel {
+  padding: 18px;
+  color: #9a3412;
+  font-size: 18px;
+  font-weight: 1000;
+  text-align: center;
+}
+
+.studyControls {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  margin: 0 0 14px;
+}
+
+.studyControls button {
+  height: 48px;
+  border: 2px solid #fed7aa;
+  border-radius: 18px;
+  color: #9a3412;
+  background: #fff7ed;
+  font-size: 16px;
+  font-weight: 1000;
+}
+
+.studyControls button.active {
+  color: white;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--orange), var(--orange2));
+}
+
+.studyControls label {
+  display: grid;
+  grid-template-columns: auto 1fr 28px;
+  gap: 8px;
+  align-items: center;
+  color: #9a3412;
+  font-size: 15px;
+  font-weight: 1000;
+}
+
+.studyControls input { width: 100%; accent-color: var(--orange); }
+.studyControls strong { color: var(--text); text-align: center; }
+
 .choiceButton {
   width: 100%;
   min-height: 68px;
@@ -401,6 +455,73 @@ button { cursor: pointer; }
 .answerPanel strong { display: block; font-size: 24px; margin-bottom: 6px; }
 .answerPanel p { margin: 0; font-size: 17px; color: var(--text); font-weight: 700; }
 .answerPanel small { display: block; margin-top: 10px; color: var(--muted); font-weight: 700; }
+
+.resultModal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(31, 41, 55, .42);
+  backdrop-filter: blur(8px);
+}
+
+.resultModalContent {
+  width: min(100%, 392px);
+  max-height: calc(100svh - 36px);
+  overflow: auto;
+  border-radius: 30px;
+  background: white;
+  border: 1px solid var(--line);
+  box-shadow: 0 30px 70px rgba(120, 53, 15, .24);
+  padding: 24px 20px 20px;
+  line-height: 1.7;
+}
+
+.resultModalContent > strong {
+  display: block;
+  margin-bottom: 10px;
+  color: #ea580c;
+  font-size: 32px;
+  line-height: 1.15;
+  letter-spacing: -0.06em;
+}
+
+.resultModalContent p {
+  margin: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 750;
+}
+
+.resultModalContent small {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.answerMeta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.answerMeta span {
+  min-height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 1000;
+}
 
 .bigPrimary, .bigSecondary, .dangerButton {
   width: 100%;
