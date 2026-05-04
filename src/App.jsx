@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const URL = "あなたのCSV_URL";
+const URL = "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/edit?gid=2024829399#gid=2024829399";
 
 export default function App() {
   const [q, setQ] = useState([]);
