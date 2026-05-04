@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+import pandaCorrect from "./panda_correct.svg";
+import pandaStreak from "./panda_streak.svg";
+import pandaWrong from "./panda_wrong.svg";
 
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
@@ -167,6 +170,12 @@ const DIRECT_TRANSLATION_HINTS = ["スパークする", "スパーク"];
 
 function cleanLearningText(value) {
   let text = String(value || "");
+  text = text.replace(/^次の意味に最も近い英単語を選びなさい[:：]\s*/g, "");
+  text = text.replace(/^次の英単語の意味として最も適切なものを選びなさい[:：]\s*/g, "");
+  text = text.replace(/^次の文の空所に入る最も適切な語を選びなさい[:：]\s*/g, "");
+  text = text.replace(/^次の英文の下線部に最も近い意味を選びなさい[:：]\s*/g, "");
+  text = text.replace(/^次の文が自然な英文になるように選びなさい[:：]\s*/g, "");
+  text = text.replace(/^本文要旨問題[:：]\s*/g, "");
   text = text.replace(/（[^）]*(?:⇔|⇒|≒|→|←)[^）]*）/g, "");
   text = text.replace(/\([^)]*(?:⇔|⇒|≒|→|←)[^)]*\)/g, "");
   text = text.replace(/(?:⇔|⇒|≒|→|←)[^；;、,\n]*/g, "");
@@ -192,6 +201,19 @@ function cleanLearningText(value) {
     .replace(/\s+/g, " ")
     .replace(/[；;、,]\s*$/g, "")
     .trim();
+}
+
+function questionSizeClass(text) {
+  const length = String(text || "").length;
+  if (length > 150) return "questionText xlText";
+  if (length > 90) return "questionText largeText";
+  if (length > 45) return "questionText mediumText";
+  return "questionText shortText";
+}
+
+function mascotImage(isCorrect, streak) {
+  if (!isCorrect) return pandaWrong;
+  return streak >= 3 ? pandaStreak : pandaCorrect;
 }
 
 function shuffle(values) {
@@ -1080,7 +1102,7 @@ export default function App() {
                       ? "遅答問題"
                       : "未学習"}
             </p>
-            <h2>{currentQuestion.question}</h2>
+            <h2 className={questionSizeClass(currentQuestion.question)}>{currentQuestion.question}</h2>
             {currentQuestion.tags?.length > 0 && (
               <div className="questionTags">
                 {currentQuestion.tags.map((tag) => <span key={tag}>{tag}</span>)}
@@ -1116,19 +1138,14 @@ export default function App() {
               <section className="resultModalContent">
                 <strong>{selectedIndex === currentQuestion.answerIndex ? "正解！" : "不正解"}</strong>
                 <div
-                  className={`mascot panda ${isCurrentAnswerCorrect ? `energy${Math.min(4, previewStreak)}` : "sad"}`}
+                  className={`mascot ${isCurrentAnswerCorrect ? `energy${Math.min(4, previewStreak)}` : "sad"}`}
                   aria-label={isCurrentAnswerCorrect ? `${previewStreak}問連続正解` : "残念"}
                 >
-                  <div className="mascotFace">
-                    <span className="pandaEar left" />
-                    <span className="pandaEar right" />
-                    <span className="pandaPatch left" />
-                    <span className="pandaPatch right" />
-                    <span className="mascotEye left" />
-                    <span className="mascotEye right" />
-                    <span className="pandaNose" />
-                    <span className="mascotMouth" />
-                  </div>
+                  <img
+                    className="mascotImage"
+                    src={mascotImage(isCurrentAnswerCorrect, previewStreak)}
+                    alt=""
+                  />
                   <div className="mascotShadow" />
                   <p>{isCurrentAnswerCorrect ? `${previewStreak}問連続！` : "次で取り返そう"}</p>
                 </div>

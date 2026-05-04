@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffb703"/><stop offset="100%" stop-color="#fb8500"/></linearGradient></defs>
+<rect width="256" height="256" rx="56" fill="#fff7ed"/>
+<circle cx="128" cy="128" r="96" fill="url(#g)" opacity=".16"/>
+<circle cx="82" cy="76" r="34" fill="#1f2937"/>
+<circle cx="174" cy="76" r="34" fill="#1f2937"/>
+<circle cx="128" cy="126" r="82" fill="#fff"/>
+<ellipse cx="96" cy="120" rx="25" ry="30" fill="#1f2937"/>
+<ellipse cx="160" cy="120" rx="25" ry="30" fill="#1f2937"/>
+<circle cx="99" cy="114" r="8" fill="#fff"/>
+<circle cx="157" cy="114" r="8" fill="#fff"/>
+<ellipse cx="128" cy="145" rx="14" ry="10" fill="#111827"/>
+<path d="M105 164 Q128 184 151 164" fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round"/>
+<circle cx="73" cy="150" r="12" fill="#fecaca"/>
+<circle cx="183" cy="150" r="12" fill="#fecaca"/>
+<circle cx="198" cy="50" r="26" fill="#22c55e"/>
+<path d="M185 50 L195 60 L213 39" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="128" y="232" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="900" fill="#ea580c">やったね！</text>
+</svg>

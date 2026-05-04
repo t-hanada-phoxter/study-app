@@ -206,8 +206,8 @@ def make_question(meaning, source_name, word):
     if len(hint) > 90:
         hint = hint[:90].rstrip() + "..."
     if hint:
-        return f"次の意味に最も近い英単語を選びなさい: {hint}"
-    return f"{source_name} の語彙リストにある英単語を選びなさい: {word}"
+        return hint
+    return word
 
 
 def build_rows(items, prefix, source_name, unit):
@@ -288,7 +288,7 @@ def build_translation_rows(items, prefix, source_name, unit):
                 "unit": f"{unit} 和訳",
                 "largeCategory": large_category_for_index(index, total),
                 "middleCategory": "",
-                "question": f"次の英単語の意味として最も適切なものを選びなさい: {word}",
+                "question": word,
                 "choice1": meaning,
                 "choice2": distractors[0],
                 "choice3": distractors[1],

@@ -396,11 +396,32 @@ button { cursor: pointer; }
   font-weight: 1000;
 }
 
-.questionPanel h2 {
+.questionText {
   margin: 0;
-  font-size: 24px;
   line-height: 1.28;
   letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.questionText.shortText {
+  font-size: 38px;
+  line-height: 1.12;
+  text-align: center;
+}
+
+.questionText.mediumText {
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.questionText.largeText {
+  font-size: 24px;
+  line-height: 1.28;
+}
+
+.questionText.xlText {
+  font-size: 20px;
+  line-height: 1.36;
 }
 
 .questionTags {
@@ -557,130 +578,20 @@ button { cursor: pointer; }
   margin: 4px 0 14px;
 }
 
-.mascotFace {
+.mascotImage {
   position: relative;
-  width: 86px;
-  height: 76px;
-  border-radius: 46px 46px 42px 42px;
-  background:
-    radial-gradient(circle at 30% 68%, #ffd6d6 0 7px, transparent 8px),
-    radial-gradient(circle at 70% 68%, #ffd6d6 0 7px, transparent 8px),
-    linear-gradient(145deg, #fffdf7, #fff7ed);
-  border: 3px solid #3f2d20;
-  box-shadow: 0 14px 24px rgba(255, 138, 0, .22), inset 0 -5px 0 rgba(255, 176, 0, .16);
+  width: 104px;
+  height: 104px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 18px rgba(255, 138, 0, .18));
   transform: translateY(0) scale(.95);
   transition: transform .2s ease;
 }
 
-.mascot.energy2 .mascotFace { transform: translateY(-2px) scale(1); }
-.mascot.energy3 .mascotFace { transform: translateY(-4px) scale(1.06); }
-.mascot.energy4 .mascotFace { transform: translateY(-6px) scale(1.12) rotate(-2deg); }
-
-.pandaEar {
-  content: "";
-  position: absolute;
-  top: -12px;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: radial-gradient(circle at 40% 42%, #ffe4e6 0 7px, #3f2d20 8px);
-  border: 2px solid #3f2d20;
-  z-index: -1;
-}
-
-.pandaEar.left {
-  left: 2px;
-}
-
-.pandaEar.right {
-  right: 2px;
-}
-
-.pandaPatch {
-  position: absolute;
-  top: 20px;
-  width: 25px;
-  height: 24px;
-  border-radius: 70% 60% 70% 60%;
-  background: #3f2d20;
-  transform: rotate(18deg);
-}
-
-.pandaPatch.left {
-  left: 16px;
-  transform: rotate(18deg);
-}
-
-.pandaPatch.right {
-  right: 16px;
-  transform: rotate(-18deg);
-}
-
-.mascotEye {
-  position: absolute;
-  top: 29px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #fffdf7;
-  box-shadow: 2px -2px 0 0 rgba(255, 255, 255, .7);
-  z-index: 1;
-}
-
-.mascotEye.left { left: 25px; }
-.mascotEye.right { right: 25px; }
-
-.pandaNose {
-  position: absolute;
-  left: 50%;
-  top: 42px;
-  width: 12px;
-  height: 9px;
-  border-radius: 999px;
-  background: #3f2d20;
-  transform: translateX(-50%);
-}
-
-.mascotMouth {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  width: 22px;
-  height: 10px;
-  border-bottom: 4px solid #3f2d20;
-  border-radius: 0 0 999px 999px;
-  transform: translateX(-50%);
-}
-
-.mascot.energy3 .mascotMouth,
-.mascot.energy4 .mascotMouth {
-  bottom: 10px;
-  height: 14px;
-  border: 0;
-  background: linear-gradient(#3f2d20 0 55%, #fb7185 56%);
-  border-radius: 0 0 999px 999px;
-}
-
-.mascot.sad .mascotFace {
-  transform: translateY(2px) scale(.95) rotate(2deg);
-  background:
-    radial-gradient(circle at 30% 68%, #fecaca 0 7px, transparent 8px),
-    radial-gradient(circle at 70% 68%, #fecaca 0 7px, transparent 8px),
-    linear-gradient(145deg, #fffdf7, #fee2e2);
-}
-
-.mascot.sad .mascotEye {
-  height: 4px;
-  top: 31px;
-  border-radius: 999px;
-}
-
-.mascot.sad .mascotMouth {
-  bottom: 9px;
-  border-top: 4px solid #3f2d20;
-  border-bottom: 0;
-  border-radius: 999px 999px 0 0;
-}
+.mascot.energy2 .mascotImage { transform: translateY(-2px) scale(1); }
+.mascot.energy3 .mascotImage { transform: translateY(-4px) scale(1.06); }
+.mascot.energy4 .mascotImage { transform: translateY(-6px) scale(1.12) rotate(-2deg); }
+.mascot.sad .mascotImage { transform: translateY(2px) scale(.95) rotate(2deg); filter: drop-shadow(0 12px 18px rgba(100, 116, 139, .18)); }
 
 .mascotShadow {
   width: 58px;
@@ -907,7 +818,10 @@ button:disabled {
 .error { color: #dc2626; }
 
 @media (max-width: 370px) {
-  .questionPanel h2 { font-size: 28px; }
+  .questionText.shortText { font-size: 42px; }
+  .questionText.mediumText { font-size: 32px; }
+  .questionText.largeText { font-size: 25px; }
+  .questionText.xlText { font-size: 21px; }
   .choiceButton { font-size: 19px; }
   .hero h2 { font-size: 30px; }
   .modeTabs button { font-size: 13px; }
