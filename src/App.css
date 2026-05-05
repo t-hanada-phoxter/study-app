@@ -197,6 +197,19 @@ button { cursor: pointer; }
 
 .loginInput:focus { border-color: var(--orange); }
 
+.settingsInput {
+  width: 100%;
+  border: 2px solid #fed7aa;
+  border-radius: 14px;
+  padding: 12px;
+  margin: 8px 0;
+  font-size: 14px;
+  font-weight: 800;
+  outline: none;
+}
+
+.settingsInput:focus { border-color: var(--orange); }
+
 .reviewNow {
   width: 100%;
   border: 0;
