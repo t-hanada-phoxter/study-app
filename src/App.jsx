@@ -7,11 +7,12 @@ import pandaWrong from "./panda_wrong.svg";
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
 const HISTORY_BACKUP_URL =
-  "https://script.google.com/macros/s/AKfycbxKOWdBgNoNUTwNLWGQran7pqC6G8W3_YsPnMEMBJeL0b7l6He9dwcZow5kZ5YdYs6IKw/exec";
+  "https://script.google.com/macros/s/AKfycbyv4WpHkNqQpFwWcebPkiqVgwq6bWr95YoE5gvyrnAwxxUcgqfmxTT8JrmQF2cXoORTyQ/exec";
 
 const CURRENT_USER_KEY = "studyApp.currentUser.v4";
 const DEVICE_ID_KEY = "studyApp.deviceId.v1";
 const BACKUP_META_KEY = "studyApp.historyBackupMeta.v1";
+const BACKUP_QUEUE_KEY = "studyApp.historyBackupQueue.v1";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
@@ -320,10 +321,10 @@ function loadHistory(userName) {
   }
 }
 
-function saveHistory(userName, history) {
+function saveHistory(userName, history, change = null) {
   if (!userName) return;
   localStorage.setItem(getHistoryKey(userName), JSON.stringify(history));
-  markHistoryBackupPending(userName);
+  if (change) enqueueHistoryBackup(userName, change);
   backupHistory(userName, history);
 }
 
@@ -350,9 +351,42 @@ function saveBackupMeta(meta) {
   localStorage.setItem(BACKUP_META_KEY, JSON.stringify(meta));
 }
 
+function loadBackupQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(BACKUP_QUEUE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveBackupQueue(queue) {
+  localStorage.setItem(BACKUP_QUEUE_KEY, JSON.stringify(queue));
+}
+
+function getQueuedBackups(userName) {
+  return loadBackupQueue()[userName] || [];
+}
+
+function enqueueHistoryBackup(userName, change) {
+  if (!HISTORY_BACKUP_URL || !userName) return;
+
+  const queue = loadBackupQueue();
+  queue[userName] = [...(queue[userName] || []), change];
+  saveBackupQueue(queue);
+  markHistoryBackupPending(userName);
+}
+
+function clearQueuedBackups(userName) {
+  const queue = loadBackupQueue();
+  queue[userName] = [];
+  saveBackupQueue(queue);
+}
+
 function shouldBackupHistory(userName, force = false) {
   if (!HISTORY_BACKUP_URL || !userName) return false;
   if (force) return true;
+
+  if (getQueuedBackups(userName).length === 0) return false;
 
   const meta = loadBackupMeta();
   const userMeta = meta[userName] || {};
@@ -398,14 +432,25 @@ function markHistoryBackupFailed(userName, error) {
 
 function backupHistory(userName, history, force = false) {
   if (!shouldBackupHistory(userName, force)) return;
+  const changes = getQueuedBackups(userName);
+  const fullSnapshot = force
+    ? {
+        questions: Object.entries(history.questions || {}).map(([questionId, questionHistory]) => ({
+          questionId,
+          questionHistory,
+        })),
+        daily: Object.entries(history.daily || {}).map(([date, stats]) => ({ date, stats })),
+      }
+    : null;
 
   const payload = {
-    type: "history_backup",
+    type: force ? "history_snapshot" : "history_delta",
     appVersion: "v4",
     userName,
     deviceId: getDeviceId(),
     savedAt: new Date().toISOString(),
-    history,
+    changes,
+    fullSnapshot,
   };
 
   fetch(HISTORY_BACKUP_URL, {
@@ -415,7 +460,10 @@ function backupHistory(userName, history, force = false) {
     body: JSON.stringify(payload),
     keepalive: true,
   })
-    .then(() => markHistoryBackupDone(userName))
+    .then(() => {
+      clearQueuedBackups(userName);
+      markHistoryBackupDone(userName);
+    })
     .catch((error) => markHistoryBackupFailed(userName, error));
 }
 
@@ -548,7 +596,21 @@ function updateHistory(userName, questionId, isCorrect, meta) {
   };
 
   history = updateDailyStats(history, isCorrect, meta);
-  saveHistory(userName, history);
+  const dailyKey = todayKey();
+  saveHistory(userName, history, {
+    answeredAt: updated.lastAnsweredAt,
+    questionId,
+    questionHistory: updated,
+    answer: {
+      isCorrect,
+      responseTimeMs: meta.responseTimeMs,
+      hesitated: meta.hesitated,
+    },
+    daily: {
+      date: dailyKey,
+      stats: history.daily?.[dailyKey] || {},
+    },
+  });
   return history;
 }
 
@@ -1369,7 +1431,7 @@ export default function App() {
             <h2 className="panelTitle">保存形式</h2>
             <p className="description">
               学習履歴は端末内の localStorage に即時保存し、Googleスプレッドシートへ定期バックアップします。
-              バックアップは5回答ごと、または前回バックアップから5分以上経過した回答時に送信します。
+              バックアップは5回答ごと、または前回バックアップから5分以上経過した回答時に、回答した問題の差分だけを送信します。
             </p>
             <p className="description">
               保存キー: {userName ? getHistoryKey(userName) : "未ログイン"} / バックアップ: {backupConfigured ? "有効" : "未設定"}
