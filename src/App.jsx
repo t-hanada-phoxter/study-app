@@ -6,12 +6,12 @@ import pandaWrong from "./panda_wrong.svg";
 
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
-const ENV_HISTORY_BACKUP_URL = import.meta.env.VITE_HISTORY_BACKUP_URL || "";
+const HISTORY_BACKUP_URL =
+  "https://script.google.com/macros/s/AKfycbxKOWdBgNoNUTwNLWGQran7pqC6G8W3_YsPnMEMBJeL0b7l6He9dwcZow5kZ5YdYs6IKw/exec";
 
 const CURRENT_USER_KEY = "studyApp.currentUser.v4";
 const DEVICE_ID_KEY = "studyApp.deviceId.v1";
 const BACKUP_META_KEY = "studyApp.historyBackupMeta.v1";
-const BACKUP_URL_KEY = "studyApp.historyBackupUrl.v1";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
@@ -350,12 +350,8 @@ function saveBackupMeta(meta) {
   localStorage.setItem(BACKUP_META_KEY, JSON.stringify(meta));
 }
 
-function getHistoryBackupUrl() {
-  return localStorage.getItem(BACKUP_URL_KEY) || ENV_HISTORY_BACKUP_URL;
-}
-
 function shouldBackupHistory(userName, force = false) {
-  if (!getHistoryBackupUrl() || !userName) return false;
+  if (!HISTORY_BACKUP_URL || !userName) return false;
   if (force) return true;
 
   const meta = loadBackupMeta();
@@ -367,7 +363,7 @@ function shouldBackupHistory(userName, force = false) {
 }
 
 function markHistoryBackupPending(userName) {
-  if (!getHistoryBackupUrl() || !userName) return;
+  if (!HISTORY_BACKUP_URL || !userName) return;
 
   const meta = loadBackupMeta();
   const userMeta = meta[userName] || {};
@@ -402,7 +398,6 @@ function markHistoryBackupFailed(userName, error) {
 
 function backupHistory(userName, history, force = false) {
   if (!shouldBackupHistory(userName, force)) return;
-  const backupUrl = getHistoryBackupUrl();
 
   const payload = {
     type: "history_backup",
@@ -413,7 +408,7 @@ function backupHistory(userName, history, force = false) {
     history,
   };
 
-  fetch(backupUrl, {
+  fetch(HISTORY_BACKUP_URL, {
     method: "POST",
     mode: "no-cors",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -695,7 +690,6 @@ export default function App() {
   const [result, setResult] = useState({ total: 0, correct: 0, wrong: 0 });
   const [sessionStreak, setSessionStreak] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
-  const [backupUrlInput, setBackupUrlInput] = useState(() => getHistoryBackupUrl());
 
   useEffect(() => {
     fetch(SHEET_CSV_URL)
@@ -801,7 +795,7 @@ export default function App() {
     [questions, history]
   );
   const backupMeta = userName ? loadBackupMeta()[userName] || {} : {};
-  const backupConfigured = Boolean(backupUrlInput.trim());
+  const backupConfigured = Boolean(HISTORY_BACKUP_URL);
 
   function login(name) {
     const fixedName = String(name || "").trim();
@@ -941,29 +935,13 @@ export default function App() {
   }
 
   function manualBackupHistory() {
-    const fixedUrl = backupUrlInput.trim();
-    if (!fixedUrl) {
+    if (!backupConfigured) {
       alert("GoogleスプレッドシートのバックアップURLが未設定です。");
       return;
     }
 
-    localStorage.setItem(BACKUP_URL_KEY, fixedUrl);
     backupHistory(userName, history, true);
     alert("Googleスプレッドシートへバックアップを送信しました。");
-  }
-
-  function saveBackupUrl() {
-    const fixedUrl = backupUrlInput.trim();
-    if (!fixedUrl) {
-      localStorage.removeItem(BACKUP_URL_KEY);
-      setBackupUrlInput(ENV_HISTORY_BACKUP_URL);
-      alert(ENV_HISTORY_BACKUP_URL ? "環境変数のバックアップURLを使用します。" : "バックアップURLを削除しました。");
-      return;
-    }
-
-    localStorage.setItem(BACKUP_URL_KEY, fixedUrl);
-    setBackupUrlInput(fixedUrl);
-    alert("バックアップURLを保存しました。");
   }
 
   function changeMonth(diff) {
@@ -1397,15 +1375,6 @@ export default function App() {
               保存キー: {userName ? getHistoryKey(userName) : "未ログイン"} / バックアップ: {backupConfigured ? "有効" : "未設定"}
               {backupMeta.lastBackupAt ? ` / 最終送信: ${new Date(backupMeta.lastBackupAt).toLocaleString()}` : ""}
             </p>
-            <input
-              className="settingsInput"
-              value={backupUrlInput}
-              onChange={(event) => setBackupUrlInput(event.target.value)}
-              placeholder="Apps Script のウェブアプリURL"
-            />
-            <button className="bigSecondary" onClick={saveBackupUrl}>
-              バックアップURLを保存
-            </button>
           </section>
           <section className="panel">
             <h2 className="panelTitle">学習履歴</h2>
