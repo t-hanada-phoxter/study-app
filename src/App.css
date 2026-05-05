@@ -614,6 +614,10 @@ button { cursor: pointer; }
   margin-top: 14px;
 }
 
+.modalActions.single {
+  grid-template-columns: 1fr;
+}
+
 .modalActions .bigPrimary,
 .modalActions .bigSecondary {
   margin-top: 0;

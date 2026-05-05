@@ -6,12 +6,17 @@ import pandaWrong from "./panda_wrong.svg";
 
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
+const HISTORY_BACKUP_URL = import.meta.env.VITE_HISTORY_BACKUP_URL || "";
 
 const CURRENT_USER_KEY = "studyApp.currentUser.v4";
+const DEVICE_ID_KEY = "studyApp.deviceId.v1";
+const BACKUP_META_KEY = "studyApp.historyBackupMeta.v1";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
 const SESSION_SIZE = 25;
+const HISTORY_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
+const HISTORY_BACKUP_EVERY_ANSWERS = 5;
 const DEFAULT_USERS = ["user1", "user2", "user3", "user4", "user5"];
 
 const FALLBACK_QUESTIONS = [
@@ -317,6 +322,100 @@ function loadHistory(userName) {
 function saveHistory(userName, history) {
   if (!userName) return;
   localStorage.setItem(getHistoryKey(userName), JSON.stringify(history));
+  markHistoryBackupPending(userName);
+  backupHistory(userName, history);
+}
+
+function getDeviceId() {
+  const current = localStorage.getItem(DEVICE_ID_KEY);
+  if (current) return current;
+
+  const generated =
+    globalThis.crypto?.randomUUID?.() ||
+    `device_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(DEVICE_ID_KEY, generated);
+  return generated;
+}
+
+function loadBackupMeta() {
+  try {
+    return JSON.parse(localStorage.getItem(BACKUP_META_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveBackupMeta(meta) {
+  localStorage.setItem(BACKUP_META_KEY, JSON.stringify(meta));
+}
+
+function shouldBackupHistory(userName, force = false) {
+  if (!HISTORY_BACKUP_URL || !userName) return false;
+  if (force) return true;
+
+  const meta = loadBackupMeta();
+  const userMeta = meta[userName] || {};
+  const pendingAnswers = userMeta.pendingAnswers || 0;
+  const elapsed = Date.now() - (userMeta.lastBackupAt || 0);
+
+  return pendingAnswers >= HISTORY_BACKUP_EVERY_ANSWERS || elapsed >= HISTORY_BACKUP_INTERVAL_MS;
+}
+
+function markHistoryBackupPending(userName) {
+  if (!HISTORY_BACKUP_URL || !userName) return;
+
+  const meta = loadBackupMeta();
+  const userMeta = meta[userName] || {};
+  meta[userName] = {
+    ...userMeta,
+    pendingAnswers: (userMeta.pendingAnswers || 0) + 1,
+  };
+  saveBackupMeta(meta);
+}
+
+function markHistoryBackupDone(userName) {
+  const meta = loadBackupMeta();
+  meta[userName] = {
+    ...(meta[userName] || {}),
+    pendingAnswers: 0,
+    lastBackupAt: Date.now(),
+    lastStatus: "ok",
+    lastError: "",
+  };
+  saveBackupMeta(meta);
+}
+
+function markHistoryBackupFailed(userName, error) {
+  const meta = loadBackupMeta();
+  meta[userName] = {
+    ...(meta[userName] || {}),
+    lastStatus: "failed",
+    lastError: String(error?.message || error || "backup failed"),
+  };
+  saveBackupMeta(meta);
+}
+
+function backupHistory(userName, history, force = false) {
+  if (!shouldBackupHistory(userName, force)) return;
+
+  const payload = {
+    type: "history_backup",
+    appVersion: "v4",
+    userName,
+    deviceId: getDeviceId(),
+    savedAt: new Date().toISOString(),
+    history,
+  };
+
+  fetch(HISTORY_BACKUP_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  })
+    .then(() => markHistoryBackupDone(userName))
+    .catch((error) => markHistoryBackupFailed(userName, error));
 }
 
 function getQuestionHistory(history, questionId) {
@@ -465,6 +564,11 @@ function isDue(q, history) {
   return daysUntil(h.nextReviewAt) <= 0;
 }
 
+function isReviewDue(q, history) {
+  const h = getQuestionHistory(history, q.id);
+  return Boolean(h) && daysUntil(h.nextReviewAt) <= 0;
+}
+
 function isWeakQuestion(q, history) {
   const h = getQuestionHistory(history, q.id);
   if (!h) return false;
@@ -526,7 +630,7 @@ function filterByMode(questions, history, mode) {
 
   if (mode === "review") {
     return questions
-      .filter((q) => isDue(q, history))
+      .filter((q) => isReviewDue(q, history))
       .sort((a, b) => scoreQuestion(b, history) - scoreQuestion(a, history));
   }
 
@@ -553,7 +657,7 @@ function countStats(list, history) {
   const studied = list.filter((q) => getQuestionHistory(history, q.id));
   const weak = list.filter((q) => isWeakQuestion(q, history));
   const slow = list.filter((q) => isSlowQuestion(q, history));
-  const due = list.filter((q) => isDue(q, history) && getQuestionHistory(history, q.id));
+  const due = list.filter((q) => isReviewDue(q, history));
   const correct = studied.reduce((sum, q) => sum + (getQuestionHistory(history, q.id)?.correct || 0), 0);
   const wrong = studied.reduce((sum, q) => sum + (getQuestionHistory(history, q.id)?.wrong || 0), 0);
   const rate = correct + wrong === 0 ? 0 : Math.round((correct / (correct + wrong)) * 100);
@@ -686,9 +790,11 @@ export default function App() {
   );
   const dueCount = useMemo(
     () =>
-      questions.filter((q) => isDue(q, history) && getQuestionHistory(history, q.id)).length,
+      questions.filter((q) => isReviewDue(q, history)).length,
     [questions, history]
   );
+  const backupMeta = userName ? loadBackupMeta()[userName] || {} : {};
+  const backupConfigured = Boolean(HISTORY_BACKUP_URL);
 
   function login(name) {
     const fixedName = String(name || "").trim();
@@ -736,7 +842,11 @@ export default function App() {
         matchesCategory(q, largeCategory, middleCategory)
     );
     const filtered = filterByMode(base, history, targetMode);
-    const list = filtered.length > 0 ? filtered : base;
+    const list = targetMode === "normal" && filtered.length === 0 ? base : filtered;
+    if (list.length === 0) {
+      alert(targetMode === "review" ? "今日の復習対象はありません。" : "条件に合う問題はありません。");
+      return;
+    }
 
     setMode(targetMode);
     setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
@@ -819,7 +929,18 @@ export default function App() {
     if (!confirm(`${userName} の学習履歴を削除しますか？`)) return;
     localStorage.removeItem(getHistoryKey(userName));
     setHistory({ questions: {}, daily: {} });
+    backupHistory(userName, { questions: {}, daily: {} }, true);
     alert("学習履歴をリセットしました");
+  }
+
+  function manualBackupHistory() {
+    if (!backupConfigured) {
+      alert("GoogleスプレッドシートのバックアップURLが未設定です。");
+      return;
+    }
+
+    backupHistory(userName, history, true);
+    alert("Googleスプレッドシートへバックアップを送信しました。");
   }
 
   function changeMonth(diff) {
@@ -1154,13 +1275,15 @@ export default function App() {
                   <span>回答 {answerMeta ? (answerMeta.responseTimeMs / 1000).toFixed(1) : "0.0"}秒</span>
                   <span>{isCurrentAnswerCorrect ? "正解" : "不正解"}</span>
                 </div>
-                <div className="modalActions">
-                  <button
-                    className={`bigSecondary ${answerMeta?.responseTimeMs >= SLOW_ANSWER_MS ? "suggested" : ""}`}
-                    onClick={() => finishAnswer(true)}
-                  >
-                    迷った
-                  </button>
+                <div className={`modalActions ${isCurrentAnswerCorrect ? "" : "single"}`}>
+                  {isCurrentAnswerCorrect && (
+                    <button
+                      className={`bigSecondary ${answerMeta?.responseTimeMs >= SLOW_ANSWER_MS ? "suggested" : ""}`}
+                      onClick={() => finishAnswer(true)}
+                    >
+                      迷った
+                    </button>
+                  )}
                   <button className="bigPrimary" onClick={() => finishAnswer(false)}>
                     {currentIndex >= sessionQuestions.length - 1 ? "結果を見る" : "次へ"}
                   </button>
@@ -1189,7 +1312,9 @@ export default function App() {
               <div><strong>{result.wrong}</strong><small>不正解</small></div>
             </div>
           </section>
-          <button className="bigPrimary" onClick={startAllDueReview}>今日の復習を続ける</button>
+          {dueCount > 0 && (
+            <button className="bigPrimary" onClick={startAllDueReview}>今日の復習を続ける</button>
+          )}
           <button className="bigSecondary" onClick={() => setScreen("calendar")}>カレンダーを見る</button>
           <button className="bigSecondary" onClick={() => setScreen("home")}>教科へ戻る</button>
         </>
@@ -1241,10 +1366,20 @@ export default function App() {
           </section>
           <section className="panel">
             <h2 className="panelTitle">保存形式</h2>
-            <p className="description">学習履歴は `localStorage` にユーザー別キーで保存します。最大5人の固定ユーザーを想定し、各ユーザーの履歴は分離しています。</p>
+            <p className="description">
+              学習履歴は端末内の localStorage に即時保存し、Googleスプレッドシートへ定期バックアップします。
+              バックアップは5回答ごと、または前回バックアップから5分以上経過した回答時に送信します。
+            </p>
+            <p className="description">
+              保存キー: {userName ? getHistoryKey(userName) : "未ログイン"} / バックアップ: {backupConfigured ? "有効" : "未設定"}
+              {backupMeta.lastBackupAt ? ` / 最終送信: ${new Date(backupMeta.lastBackupAt).toLocaleString()}` : ""}
+            </p>
           </section>
           <section className="panel">
             <h2 className="panelTitle">学習履歴</h2>
+            <button className="bigSecondary" onClick={manualBackupHistory} disabled={!userName || !backupConfigured}>
+              今すぐバックアップ
+            </button>
             <button className="dangerButton" onClick={resetHistory}>このユーザーの履歴をリセット</button>
           </section>
         </>
