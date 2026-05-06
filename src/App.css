@@ -109,7 +109,10 @@ button { cursor: pointer; }
 
 @media (min-width: 760px) {
   .brandHeader {
-    transform: translate(-50%, 0);
+    position: static;
+    width: 100%;
+    transform: none;
+    margin: 0 0 18px;
   }
 
   .loginBackButton {
