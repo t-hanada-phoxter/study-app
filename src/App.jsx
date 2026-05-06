@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import pandaCorrect from "./panda_correct.svg";
 import pandaStreak from "./panda_streak.svg";
@@ -20,6 +20,10 @@ const SESSION_SIZE = 25;
 const HISTORY_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const HISTORY_BACKUP_EVERY_ANSWERS = 5;
 const DEFAULT_USERS = ["user1", "user2", "user3", "user4", "user5"];
+const ANSWER_FORMATS = {
+  CHOICE: "choice",
+  INPUT: "input",
+};
 
 const FALLBACK_QUESTIONS = [
   {
@@ -244,9 +248,30 @@ function prepareQuestionForSession(question) {
   return {
     ...question,
     allChoices: question.choices,
+    answerText: answerChoice,
     choices: displayChoices.map((choice) => choice.text),
     answerIndex: displayChoices.findIndex((choice) => choice.correct),
   };
+}
+
+function normalizeDirectAnswer(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/\s+/g, " ");
+}
+
+function isEnglishAnswerText(value) {
+  const text = String(value || "").trim();
+  return /[a-zA-Z]/.test(text) && !/[ぁ-んァ-ヶ一-龠]/.test(text);
+}
+
+function supportsDirectInput(question) {
+  const source = `${question.id || ""} ${question.unit || ""} ${question.largeCategory || ""}`;
+  const isVocabQuestion = /英単語|vocab|target1900|commonimportant/i.test(source);
+  return isVocabQuestion && isEnglishAnswerText(question.choices?.[question.answerIndex]);
 }
 
 function matchesTag(question, selectedTag) {
@@ -742,9 +767,11 @@ export default function App() {
   const [selectedTag, setSelectedTag] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState("");
   const [mode, setMode] = useState("normal");
+  const [answerFormat, setAnswerFormat] = useState(ANSWER_FORMATS.CHOICE);
   const [sessionQuestions, setSessionQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(null);
+  const [typedAnswer, setTypedAnswer] = useState("");
   const [showChoices, setShowChoices] = useState(false);
   const [choiceShownAt, setChoiceShownAt] = useState(Date.now());
   const [answerMeta, setAnswerMeta] = useState(null);
@@ -752,6 +779,7 @@ export default function App() {
   const [result, setResult] = useState({ total: 0, correct: 0, wrong: 0 });
   const [sessionStreak, setSessionStreak] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
+  const answerInputRef = useRef(null);
 
   useEffect(() => {
     fetch(SHEET_CSV_URL)
@@ -787,6 +815,12 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [screen, currentIndex]);
+
+  useEffect(() => {
+    if (screen === "study" && showChoices && answerFormat === ANSWER_FORMATS.INPUT) {
+      answerInputRef.current?.focus();
+    }
+  }, [screen, showChoices, answerFormat, currentIndex]);
 
   useEffect(() => {
     let lastY = window.scrollY;
@@ -892,6 +926,7 @@ export default function App() {
     setLargeCategory("");
     setMiddleCategory("");
     setSelectedDifficulty("");
+    setAnswerFormat(ANSWER_FORMATS.CHOICE);
     setScreen("filters");
   }
 
@@ -906,15 +941,21 @@ export default function App() {
     );
     const filtered = filterByMode(base, history, targetMode);
     const list = targetMode === "normal" && filtered.length === 0 ? base : filtered;
+    const nextAnswerFormat =
+      answerFormat === ANSWER_FORMATS.INPUT && list.every(supportsDirectInput)
+        ? ANSWER_FORMATS.INPUT
+        : ANSWER_FORMATS.CHOICE;
     if (list.length === 0) {
       alert(targetMode === "review" ? "今日の復習対象はありません。" : "条件に合う問題はありません。");
       return;
     }
 
     setMode(targetMode);
+    setAnswerFormat(nextAnswerFormat);
     setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
     setCurrentIndex(0);
     setSelectedIndex(null);
+    setTypedAnswer("");
     setAnswerMeta(null);
     setSessionStreak(0);
     setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
@@ -937,9 +978,11 @@ export default function App() {
     setLargeCategory("");
     setMiddleCategory("");
     setMode("review");
+    setAnswerFormat(ANSWER_FORMATS.CHOICE);
     setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
     setCurrentIndex(0);
     setSelectedIndex(null);
+    setTypedAnswer("");
     setAnswerMeta(null);
     setSessionStreak(0);
     setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
@@ -952,6 +995,25 @@ export default function App() {
     setSelectedIndex(index);
     setAnswerMeta({
       responseTimeMs: Date.now() - choiceShownAt,
+    });
+  }
+
+  function submitTypedAnswer(event) {
+    event.preventDefault();
+    if (selectedIndex !== null || !showChoices) return;
+
+    const q = sessionQuestions[currentIndex];
+    const userAnswer = typedAnswer.trim();
+    if (!userAnswer) return;
+
+    const correctAnswer = q.answerText || q.choices[q.answerIndex];
+    const isCorrect = normalizeDirectAnswer(userAnswer) === normalizeDirectAnswer(correctAnswer);
+
+    setSelectedIndex(isCorrect ? q.answerIndex : -1);
+    setAnswerMeta({
+      responseTimeMs: Date.now() - choiceShownAt,
+      answerFormat: ANSWER_FORMATS.INPUT,
+      typedAnswer: userAnswer,
     });
   }
 
@@ -985,6 +1047,7 @@ export default function App() {
 
     setCurrentIndex((prev) => prev + 1);
     setSelectedIndex(null);
+    setTypedAnswer("");
     setAnswerMeta(null);
   }
 
@@ -1235,12 +1298,29 @@ export default function App() {
                 matchesCategory(q, largeCategory, middleCategory)
             );
             const stat = countStats(selectedQuestions, history);
+            const directInputAvailable = selectedQuestions.length > 0 && selectedQuestions.every(supportsDirectInput);
             return (
               <section className="panel">
                 <h2 className="panelTitle">出題条件</h2>
                 <p className="description">
                   {stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%
                 </p>
+                {directInputAvailable && (
+                  <div className="answerFormatTabs" aria-label="回答形式">
+                    <button
+                      className={answerFormat === ANSWER_FORMATS.CHOICE ? "active" : ""}
+                      onClick={() => setAnswerFormat(ANSWER_FORMATS.CHOICE)}
+                    >
+                      4択
+                    </button>
+                    <button
+                      className={answerFormat === ANSWER_FORMATS.INPUT ? "active" : ""}
+                      onClick={() => setAnswerFormat(ANSWER_FORMATS.INPUT)}
+                    >
+                      直接入力
+                    </button>
+                  </div>
+                )}
                 <button className="bigPrimary" onClick={() => startStudy()} disabled={stat.total === 0}>
                   25問で開始
                 </button>
@@ -1296,7 +1376,7 @@ export default function App() {
 
           {!showChoices && <div className="thinkingPanel">問題を読んで考えてください...</div>}
 
-          {showChoices && (
+          {showChoices && answerFormat === ANSWER_FORMATS.CHOICE && (
             <div className="choiceList">
               {currentQuestion.choices.map((choice, index) => {
                 const isCorrect = index === currentQuestion.answerIndex;
@@ -1313,6 +1393,24 @@ export default function App() {
                 );
               })}
             </div>
+          )}
+
+          {showChoices && answerFormat === ANSWER_FORMATS.INPUT && (
+            <form className="directAnswerForm" onSubmit={submitTypedAnswer}>
+              <input
+                ref={answerInputRef}
+                value={typedAnswer}
+                onChange={(event) => setTypedAnswer(event.target.value)}
+                disabled={answered}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                placeholder="英単語を入力"
+              />
+              <button className="bigPrimary" type="submit" disabled={answered || !typedAnswer.trim()}>
+                確定
+              </button>
+            </form>
           )}
 
           <button className="bigSecondary" onClick={() => setScreen("result")}>終了する</button>
@@ -1333,6 +1431,12 @@ export default function App() {
                   <div className="mascotShadow" />
                   <p>{isCurrentAnswerCorrect ? `${previewStreak}問連続！` : "次で取り返そう"}</p>
                 </div>
+                {answerMeta?.answerFormat === ANSWER_FORMATS.INPUT && (
+                  <div className="directAnswerResult">
+                    <span>入力: {answerMeta.typedAnswer}</span>
+                    <strong>正解: {currentQuestion.answerText || currentQuestion.choices[currentQuestion.answerIndex]}</strong>
+                  </div>
+                )}
                 <p>{currentQuestion.explanation}</p>
                 <div className="answerMeta">
                   <span>回答 {answerMeta ? (answerMeta.responseTimeMs / 1000).toFixed(1) : "0.0"}秒</span>

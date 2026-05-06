@@ -1,6 +1,17 @@
 const LOG_SHEET_NAME = "history_backup_log";
 const QUESTION_SHEET_NAME = "history_questions";
 const DAILY_SHEET_NAME = "history_daily";
+const SCRIPT_VERSION = "history-row-backup-v2";
+
+function doGet() {
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      ok: true,
+      version: SCRIPT_VERSION,
+      sheets: [QUESTION_SHEET_NAME, DAILY_SHEET_NAME, LOG_SHEET_NAME],
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
 function doPost(e) {
   const lock = LockService.getScriptLock();

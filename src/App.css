@@ -341,6 +341,33 @@ button { cursor: pointer; }
   box-shadow: 0 10px 18px rgba(255, 138, 0, .20);
 }
 
+.answerFormatTabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+  padding: 5px;
+  border-radius: 20px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.answerFormatTabs button {
+  border: 0;
+  border-radius: 15px;
+  padding: 12px 8px;
+  color: #9a3412;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 1000;
+}
+
+.answerFormatTabs button.active {
+  color: white;
+  background: linear-gradient(135deg, var(--orange), var(--orange2));
+  box-shadow: 0 10px 18px rgba(255, 138, 0, .18);
+}
+
 .thinBar {
   width: 100%;
   height: 9px;
@@ -493,6 +520,52 @@ button { cursor: pointer; }
 .choiceButton.correct span { color: white; background: var(--green); }
 .choiceButton.wrong { border-color: var(--red); background: #fff1f2; color: #991b1b; }
 .choiceButton.wrong span { color: white; background: var(--red); }
+
+.directAnswerForm {
+  display: grid;
+  gap: 10px;
+}
+
+.directAnswerForm input {
+  width: 100%;
+  min-height: 62px;
+  border: 2px solid #fed7aa;
+  border-radius: 18px;
+  padding: 13px 15px;
+  color: var(--text);
+  background: white;
+  box-shadow: 0 8px 18px rgba(15,23,42,.07);
+  font-size: 22px;
+  font-weight: 900;
+  outline: none;
+}
+
+.directAnswerForm input:focus {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 4px rgba(255, 138, 0, .14), 0 8px 18px rgba(15,23,42,.07);
+}
+
+.directAnswerForm .bigPrimary {
+  margin-top: 0;
+}
+
+.directAnswerResult {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.directAnswerResult span,
+.directAnswerResult strong {
+  overflow-wrap: anywhere;
+  color: #9a3412;
+  font-size: 14px;
+  line-height: 1.35;
+}
 
 .answerPanel {
   margin-top: 16px;
