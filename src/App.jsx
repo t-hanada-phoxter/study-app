@@ -807,6 +807,12 @@ export default function App() {
   useEffect(() => {
     if (screen !== "study") return undefined;
 
+    if (answerFormat === ANSWER_FORMATS.INPUT) {
+      setShowChoices(true);
+      setChoiceShownAt(Date.now());
+      return undefined;
+    }
+
     setShowChoices(false);
     const timer = setTimeout(() => {
       setShowChoices(true);
@@ -814,13 +820,33 @@ export default function App() {
     }, CHOICE_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [screen, currentIndex]);
+  }, [screen, currentIndex, answerFormat]);
 
   useEffect(() => {
     if (screen === "study" && showChoices && answerFormat === ANSWER_FORMATS.INPUT) {
-      answerInputRef.current?.focus();
+      requestAnimationFrame(() => answerInputRef.current?.focus());
     }
   }, [screen, showChoices, answerFormat, currentIndex]);
+
+  useEffect(() => {
+    if (
+      screen !== "study" ||
+      answerFormat !== ANSWER_FORMATS.INPUT ||
+      selectedIndex === null ||
+      !answerMeta
+    ) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key !== "Enter" || event.isComposing) return;
+      event.preventDefault();
+      finishAnswer(false);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [screen, answerFormat, selectedIndex, answerMeta, currentIndex, sessionQuestions.length]);
 
   useEffect(() => {
     let lastY = window.scrollY;
@@ -1402,8 +1428,12 @@ export default function App() {
                 value={typedAnswer}
                 onChange={(event) => setTypedAnswer(event.target.value)}
                 disabled={answered}
+                autoFocus
                 autoCapitalize="none"
                 autoCorrect="off"
+                enterKeyHint="done"
+                inputMode="text"
+                lang="en"
                 spellCheck="false"
                 placeholder="英単語を入力"
               />
