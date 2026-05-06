@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import "./App.css";
 import pandaCorrect from "./panda_correct.svg";
 import pandaStreak from "./panda_streak.svg";
@@ -824,7 +825,7 @@ export default function App() {
 
   useEffect(() => {
     if (screen === "study" && showChoices && answerFormat === ANSWER_FORMATS.INPUT) {
-      requestAnimationFrame(() => answerInputRef.current?.focus());
+      focusDirectAnswerInput();
     }
   }, [screen, showChoices, answerFormat, currentIndex]);
 
@@ -956,6 +957,17 @@ export default function App() {
     setScreen("filters");
   }
 
+  function focusDirectAnswerInput() {
+    const focus = () => {
+      answerInputRef.current?.focus({ preventScroll: true });
+    };
+
+    focus();
+    requestAnimationFrame(focus);
+    setTimeout(focus, 80);
+    setTimeout(focus, 220);
+  }
+
   function startStudy(targetMode = mode) {
     const base = questions.filter(
       (q) =>
@@ -976,16 +988,26 @@ export default function App() {
       return;
     }
 
-    setMode(targetMode);
-    setAnswerFormat(nextAnswerFormat);
-    setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
-    setCurrentIndex(0);
-    setSelectedIndex(null);
-    setTypedAnswer("");
-    setAnswerMeta(null);
-    setSessionStreak(0);
-    setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
-    setScreen("study");
+    const applyStudyState = () => {
+      setMode(targetMode);
+      setAnswerFormat(nextAnswerFormat);
+      setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
+      setCurrentIndex(0);
+      setSelectedIndex(null);
+      setTypedAnswer("");
+      setAnswerMeta(null);
+      setSessionStreak(0);
+      setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
+      setScreen("study");
+    };
+
+    if (nextAnswerFormat === ANSWER_FORMATS.INPUT) {
+      flushSync(applyStudyState);
+      focusDirectAnswerInput();
+      return;
+    }
+
+    applyStudyState();
   }
 
   function startAllDueReview() {
@@ -1021,6 +1043,18 @@ export default function App() {
     setSelectedIndex(index);
     setAnswerMeta({
       responseTimeMs: Date.now() - choiceShownAt,
+    });
+  }
+
+  function answerUnknown() {
+    if (selectedIndex !== null || !showChoices) return;
+
+    setSelectedIndex(-1);
+    setAnswerMeta({
+      responseTimeMs: Date.now() - choiceShownAt,
+      answerFormat,
+      gaveUp: true,
+      typedAnswer: "わからない",
     });
   }
 
@@ -1130,6 +1164,7 @@ export default function App() {
             {userName && <p>{userName}</p>}
           </div>
         </div>
+        {userName && <button className="miniButton loginBackButton" onClick={logout}>ログイン</button>}
         <button className="miniButton" onClick={() => setScreen("settings")}>設定</button>
       </header>
 
@@ -1168,6 +1203,7 @@ export default function App() {
             <strong>{dueCount}問</strong>
           </button>
           <button className="calendarButton" onClick={() => setScreen("calendar")}>学習カレンダーを見る</button>
+          <button className="loginReturnButton" onClick={logout}>ログイン画面へ戻る</button>
 
           <h3 className="sectionTitle">教科を選択</h3>
           {subjects.map((s) => {
@@ -1441,6 +1477,12 @@ export default function App() {
                 確定
               </button>
             </form>
+          )}
+
+          {showChoices && !answered && (
+            <button className="unknownButton" onClick={answerUnknown}>
+              わからない
+            </button>
           )}
 
           <button className="bigSecondary" onClick={() => setScreen("result")}>終了する</button>

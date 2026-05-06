@@ -84,6 +84,39 @@ button { cursor: pointer; }
   box-shadow: 0 6px 16px rgba(15, 23, 42, .06);
 }
 
+.loginBackButton {
+  display: none;
+}
+
+.loginReturnButton,
+.unknownButton {
+  width: 100%;
+  border: 2px solid #fecdd3;
+  border-radius: 22px;
+  padding: 16px;
+  margin-top: 12px;
+  color: #be123c;
+  background: #fff1f2;
+  font-size: 17px;
+  font-weight: 1000;
+}
+
+.loginReturnButton {
+  color: #9a3412;
+  background: white;
+  border-color: #fed7aa;
+}
+
+@media (min-width: 760px) {
+  .brandHeader {
+    transform: translate(-50%, 0);
+  }
+
+  .loginBackButton {
+    display: block;
+  }
+}
+
 .hero {
   position: relative;
   overflow: hidden;
