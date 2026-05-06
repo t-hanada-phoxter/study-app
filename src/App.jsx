@@ -854,6 +854,12 @@ export default function App() {
 
     function handleScroll() {
       const currentY = window.scrollY;
+      if (currentY <= 24) {
+        setHeaderVisible(false);
+        lastY = currentY;
+        return;
+      }
+
       if (currentY < lastY - 6) setHeaderVisible(true);
       if (currentY > lastY + 6) setHeaderVisible(false);
       lastY = currentY;
