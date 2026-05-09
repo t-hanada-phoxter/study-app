@@ -392,7 +392,7 @@ function parseBatchHistoryCsv(csvText, userName) {
 
   const headers = parseCsvLine(lines[0]);
   const userNameIndex = headers.indexOf("userName");
-  const payloadIndex = headers.indexOf("payloadJson");
+  const payloadIndex = headers.includes("historyJson") ? headers.indexOf("historyJson") : headers.indexOf("payloadJson");
   if (userNameIndex < 0 || payloadIndex < 0) return null;
 
   const history = { questions: {}, daily: {} };

@@ -55,12 +55,10 @@ function doPost(e) {
     appendRows_(getSheet_(spreadsheet, BATCH_SHEET_NAME, batchHeaders_()), [[
       receivedAt,
       payload.savedAt || "",
-      payload.type || "",
       payload.userName || "",
       payload.deviceId || "",
       payload.appVersion || "",
-      changes.length,
-      snapshotQuestions.length,
+      snapshotQuestions.length || changes.length,
       snapshotDaily.length,
       payloadJson,
     ]]);
@@ -249,7 +247,7 @@ function buildBatchHistoryForUser_(spreadsheet, userName) {
   values.forEach((row) => {
     if (String(row[index.userName] || "") !== userName) return;
 
-    const payloadJson = String(row[index.payloadJson] || "");
+    const payloadJson = String(row[index.historyJson] || row[index.payloadJson] || "");
     if (!payloadJson) return;
 
     let payload;
@@ -477,13 +475,11 @@ function batchHeaders_() {
   return [
     "receivedAt",
     "savedAt",
-    "type",
     "userName",
     "deviceId",
     "appVersion",
-    "changeCount",
-    "snapshotQuestionCount",
-    "snapshotDailyCount",
-    "payloadJson",
+    "questionCount",
+    "dailyCount",
+    "historyJson",
   ];
 }
