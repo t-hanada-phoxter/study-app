@@ -361,23 +361,29 @@ function normalizeHistory(value) {
 async function loadSpreadsheetHistory(userName) {
   if (!HISTORY_BACKUP_URL || !userName) return { questions: {}, daily: {} };
 
-  const gvizHistory = await loadBatchGvizHistory(userName);
-  if (gvizHistory) return gvizHistory;
-
-  const batchHistory = await loadBatchCsvHistory(userName);
-  if (batchHistory) return batchHistory;
-
   try {
     const url = new URL(HISTORY_BACKUP_URL);
     url.searchParams.set("userName", userName);
     url.searchParams.set("t", String(Date.now()));
 
     const payload = await fetchJsonp(url);
-    if (payload.ok === false) return null;
-    return normalizeHistory(payload.history);
+    const scriptHistory = normalizeHistory(payload.history);
+    if (payload.ok !== false && hasHistory(scriptHistory)) return scriptHistory;
   } catch {
-    return null;
+    // Try the published sheet directly below.
   }
+
+  const gvizHistory = await loadBatchGvizHistory(userName);
+  if (gvizHistory) return gvizHistory;
+
+  const batchHistory = await loadBatchCsvHistory(userName);
+  if (batchHistory) return batchHistory;
+
+  return null;
+}
+
+function hasHistory(history) {
+  return Object.keys(history?.questions || {}).length > 0 || Object.keys(history?.daily || {}).length > 0;
 }
 
 async function loadBatchGvizHistory(userName) {

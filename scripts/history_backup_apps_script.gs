@@ -254,9 +254,7 @@ function removeRowsForUser_(sheet, userName) {
 
 function buildHistoryForUser_(spreadsheet, userName) {
   const batchHistory = buildBatchHistoryForUser_(spreadsheet, userName);
-  if (Object.keys(batchHistory.questions).length || Object.keys(batchHistory.daily).length) {
-    return batchHistory;
-  }
+  if (Object.keys(batchHistory.questions).length || Object.keys(batchHistory.daily).length) return batchHistory;
 
   const resetAfter = latestResetTimeForUser_(spreadsheet, userName);
   return {
@@ -271,13 +269,12 @@ function buildBatchHistoryForUser_(spreadsheet, userName) {
   if (!sheet || sheet.getLastRow() < 2) return history;
 
   const values = sheet.getDataRange().getValues();
-  const headers = values.shift();
-  const index = headerIndex_(headers);
+  values.shift();
 
   values.forEach((row) => {
-    if (String(row[index.userName] || "") !== userName) return;
+    if (String(row[2] || "").trim() !== userName) return;
 
-    const payloadJson = String(row[index.historyJson] || row[index.payloadJson] || "");
+    const payloadJson = String(row[7] || "");
     if (!payloadJson) return;
 
     let payload;
