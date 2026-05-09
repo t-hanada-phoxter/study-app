@@ -370,11 +370,11 @@ async function loadSpreadsheetHistory(userName) {
   return normalizeHistory(payload.history);
 }
 
-function saveHistory(userName, history, change = null) {
+function saveHistory(userName, history, change = null, forceFlush = false) {
   if (!userName) return;
   localStorage.setItem(getHistoryKey(userName), JSON.stringify(history));
   if (change) enqueueHistoryBackup(userName, change);
-  backupHistory(userName, history);
+  backupHistory(userName, history, forceFlush);
 }
 
 function getDeviceId() {
@@ -479,10 +479,10 @@ function markHistoryBackupFailed(userName, error) {
   saveBackupMeta(meta);
 }
 
-function backupHistory(userName, history, force = false) {
+function backupHistory(userName, history, force = false, snapshot = false) {
   if (!shouldBackupHistory(userName, force)) return;
   const changes = getQueuedBackups(userName);
-  const fullSnapshot = force
+  const fullSnapshot = snapshot
     ? {
         questions: Object.entries(history.questions || {}).map(([questionId, questionHistory]) => ({
           questionId,
@@ -493,7 +493,7 @@ function backupHistory(userName, history, force = false) {
     : null;
 
   const payload = {
-    type: force ? "history_snapshot" : "history_delta",
+    type: snapshot ? "history_snapshot" : "history_delta",
     appVersion: "v4",
     userName,
     deviceId: getDeviceId(),
@@ -622,7 +622,7 @@ function computeNextSchedule(item, isCorrect, meta) {
   };
 }
 
-function updateHistory(userName, baseHistory, questionId, isCorrect, meta) {
+function updateHistory(userName, baseHistory, questionId, isCorrect, meta, forceFlush = false) {
   let history = normalizeHistory(baseHistory);
   const current = history.questions?.[questionId] || {
     correct: 0,
@@ -679,20 +679,25 @@ function updateHistory(userName, baseHistory, questionId, isCorrect, meta) {
 
   history = updateDailyStats(history, isCorrect, meta);
   const dailyKey = todayKey();
-  saveHistory(userName, history, {
-    answeredAt: updated.lastAnsweredAt,
-    questionId,
-    questionHistory: updated,
-    answer: {
-      isCorrect,
-      responseTimeMs: meta.responseTimeMs,
-      hesitated: meta.hesitated,
+  saveHistory(
+    userName,
+    history,
+    {
+      answeredAt: updated.lastAnsweredAt,
+      questionId,
+      questionHistory: updated,
+      answer: {
+        isCorrect,
+        responseTimeMs: meta.responseTimeMs,
+        hesitated: meta.hesitated,
+      },
+      daily: {
+        date: dailyKey,
+        stats: history.daily?.[dailyKey] || {},
+      },
     },
-    daily: {
-      date: dailyKey,
-      stats: history.daily?.[dailyKey] || {},
-    },
-  });
+    forceFlush
+  );
   return history;
 }
 
@@ -1174,6 +1179,7 @@ export default function App() {
       ...answerMeta,
       hesitated: markHesitated,
     };
+    const isLastQuestion = currentIndex >= sessionQuestions.length - 1;
     setHistoryCheckpoints((prev) => ({
       ...prev,
       [currentIndex]: {
@@ -1182,7 +1188,7 @@ export default function App() {
         sessionStreak,
       },
     }));
-    const newHistory = updateHistory(userName, history, q.id, isCorrect, meta);
+    const newHistory = updateHistory(userName, history, q.id, isCorrect, meta, isLastQuestion);
 
     setHistory(newHistory);
     setResult((prev) => ({
@@ -1238,7 +1244,7 @@ export default function App() {
     if (!confirm(`${userName} の学習履歴を削除しますか？`)) return;
     localStorage.removeItem(getHistoryKey(userName));
     setHistory({ questions: {}, daily: {} });
-    backupHistory(userName, { questions: {}, daily: {} }, true);
+    backupHistory(userName, { questions: {}, daily: {} }, true, true);
     alert("学習履歴をリセットしました");
   }
 
@@ -1248,7 +1254,7 @@ export default function App() {
       return;
     }
 
-    backupHistory(userName, history, true);
+    backupHistory(userName, history, true, true);
     alert("Googleスプレッドシートへバックアップを送信しました。");
   }
 

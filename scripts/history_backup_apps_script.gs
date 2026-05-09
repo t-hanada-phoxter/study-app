@@ -1,7 +1,8 @@
 const LOG_SHEET_NAME = "history_backup_log";
+const BATCH_SHEET_NAME = "history_backup_batches";
 const QUESTION_SHEET_NAME = "history_questions";
 const DAILY_SHEET_NAME = "history_daily";
-const SCRIPT_VERSION = "history-row-backup-v2";
+const SCRIPT_VERSION = "history-batch-backup-v3";
 
 function doGet(e) {
   const userName = e && e.parameter ? String(e.parameter.userName || "").trim() : "";
@@ -19,11 +20,11 @@ function doGet(e) {
   }
 
   return ContentService
-    .createTextOutput(JSON.stringify({
-      ok: true,
-      version: SCRIPT_VERSION,
-      sheets: [QUESTION_SHEET_NAME, DAILY_SHEET_NAME, LOG_SHEET_NAME],
-    }))
+      .createTextOutput(JSON.stringify({
+        ok: true,
+        version: SCRIPT_VERSION,
+        sheets: [BATCH_SHEET_NAME, LOG_SHEET_NAME],
+      }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -40,11 +41,27 @@ function doPost(e) {
       replaceRowsForUser_(spreadsheet, payload.userName || "");
     }
 
-    const questionRows = buildQuestionRows_(payload, receivedAt);
-    const dailyRows = buildDailyRows_(payload, receivedAt);
+    const changes = payload.changes || [];
+    const snapshotQuestions = payload.fullSnapshot ? payload.fullSnapshot.questions || [] : [];
+    const snapshotDaily = payload.fullSnapshot ? payload.fullSnapshot.daily || [] : [];
+    const payloadJson = JSON.stringify({
+      type: payload.type || "",
+      changes,
+      fullSnapshot: payload.fullSnapshot || null,
+    });
 
-    appendRows_(getSheet_(spreadsheet, QUESTION_SHEET_NAME, questionHeaders_()), questionRows);
-    appendRows_(getSheet_(spreadsheet, DAILY_SHEET_NAME, dailyHeaders_()), dailyRows);
+    appendRows_(getSheet_(spreadsheet, BATCH_SHEET_NAME, batchHeaders_()), [[
+      receivedAt,
+      payload.savedAt || "",
+      payload.type || "",
+      payload.userName || "",
+      payload.deviceId || "",
+      payload.appVersion || "",
+      changes.length,
+      snapshotQuestions.length,
+      snapshotDaily.length,
+      payloadJson,
+    ]]);
     appendRows_(getSheet_(spreadsheet, LOG_SHEET_NAME, logHeaders_()), [[
       receivedAt,
       payload.savedAt || "",
@@ -52,8 +69,10 @@ function doPost(e) {
       payload.userName || "",
       payload.deviceId || "",
       payload.appVersion || "",
-      questionRows.length,
-      dailyRows.length,
+      changes.length,
+      snapshotQuestions.length,
+      snapshotDaily.length,
+      payloadJson.slice(0, 45000),
     ]]);
 
     return ContentService
@@ -171,6 +190,7 @@ function appendRows_(sheet, rows) {
 
 function replaceRowsForUser_(spreadsheet, userName) {
   if (!userName) return;
+  removeRowsForUser_(getSheet_(spreadsheet, BATCH_SHEET_NAME, batchHeaders_()), userName);
   removeRowsForUser_(getSheet_(spreadsheet, QUESTION_SHEET_NAME, questionHeaders_()), userName);
   removeRowsForUser_(getSheet_(spreadsheet, DAILY_SHEET_NAME, dailyHeaders_()), userName);
 }
@@ -188,11 +208,68 @@ function removeRowsForUser_(sheet, userName) {
 }
 
 function buildHistoryForUser_(spreadsheet, userName) {
+  const batchHistory = buildBatchHistoryForUser_(spreadsheet, userName);
+  if (Object.keys(batchHistory.questions).length || Object.keys(batchHistory.daily).length) {
+    return batchHistory;
+  }
+
   const resetAfter = latestResetTimeForUser_(spreadsheet, userName);
   return {
     questions: buildQuestionHistoryForUser_(spreadsheet, userName, resetAfter),
     daily: buildDailyHistoryForUser_(spreadsheet, userName, resetAfter),
   };
+}
+
+function buildBatchHistoryForUser_(spreadsheet, userName) {
+  const sheet = spreadsheet.getSheetByName(BATCH_SHEET_NAME);
+  const history = { questions: {}, daily: {} };
+  if (!sheet || sheet.getLastRow() < 2) return history;
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift();
+  const index = headerIndex_(headers);
+
+  values.forEach((row) => {
+    if (String(row[index.userName] || "") !== userName) return;
+
+    const payloadJson = String(row[index.payloadJson] || "");
+    if (!payloadJson) return;
+
+    let payload;
+    try {
+      payload = JSON.parse(payloadJson);
+    } catch (error) {
+      return;
+    }
+
+    if (payload.type === "history_replace" || payload.type === "history_snapshot") {
+      history.questions = {};
+      history.daily = {};
+    }
+
+    const snapshot = payload.fullSnapshot || null;
+    if (snapshot) {
+      (snapshot.questions || []).forEach((item) => {
+        if (item.questionId && item.questionHistory) {
+          history.questions[item.questionId] = item.questionHistory;
+        }
+      });
+      (snapshot.daily || []).forEach((item) => {
+        if (item.date) history.daily[item.date] = item.stats || {};
+      });
+    }
+
+    (payload.changes || []).forEach((change) => {
+      if (change.questionId && change.questionHistory) {
+        history.questions[change.questionId] = change.questionHistory;
+      }
+      if (change.daily && change.daily.date) {
+        history.daily[change.daily.date] = change.daily.stats || {};
+      }
+    });
+  });
+
+  return history;
 }
 
 function buildQuestionHistoryForUser_(spreadsheet, userName, resetAfter) {
@@ -276,7 +353,7 @@ function latestResetTimeForUser_(spreadsheet, userName) {
   values.forEach((row) => {
     if (String(row[index.userName] || "") !== userName) return;
     if (String(row[index.type] || "") !== "history_snapshot") return;
-    if (numberValue_(row[index.questionRows]) !== 0 || numberValue_(row[index.dailyRows]) !== 0) return;
+    if (numberValue_(row[index.changeCount]) !== 0 || numberValue_(row[index.snapshotQuestionCount]) !== 0) return;
 
     const receivedAt = dateValue_(row[index.receivedAt]);
     if (receivedAt && (!latest || receivedAt > latest)) latest = receivedAt;
@@ -372,7 +449,24 @@ function logHeaders_() {
     "userName",
     "deviceId",
     "appVersion",
-    "questionRows",
-    "dailyRows",
+    "changeCount",
+    "snapshotQuestionCount",
+    "snapshotDailyCount",
+    "payloadJson",
+  ];
+}
+
+function batchHeaders_() {
+  return [
+    "receivedAt",
+    "savedAt",
+    "type",
+    "userName",
+    "deviceId",
+    "appVersion",
+    "changeCount",
+    "snapshotQuestionCount",
+    "snapshotDailyCount",
+    "payloadJson",
   ];
 }
