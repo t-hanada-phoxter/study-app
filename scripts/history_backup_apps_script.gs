@@ -37,20 +37,16 @@ function doPost(e) {
       replaceRowsForUser_(spreadsheet, payload.userName || "");
     }
 
-    const changes = payload.changes || [];
-    const snapshotQuestions = payload.fullSnapshot ? payload.fullSnapshot.questions || [] : [];
-    const snapshotDaily = payload.fullSnapshot ? payload.fullSnapshot.daily || [] : [];
+    const history = normalizeHistory_(payload.history || historyFromPayload_(payload));
+    const questionCount = Object.keys(history.questions || {}).length;
+    const dailyCount = Object.keys(history.daily || {}).length;
     const isMeaningfulEmpty = payload.type === "history_replace";
-    if (!isMeaningfulEmpty && changes.length === 0 && snapshotQuestions.length === 0 && snapshotDaily.length === 0) {
+    if (!isMeaningfulEmpty && questionCount === 0 && dailyCount === 0) {
       return ContentService
         .createTextOutput(JSON.stringify({ ok: true, skipped: true, reason: "empty payload" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    const payloadJson = JSON.stringify({
-      type: payload.type || "",
-      changes,
-      fullSnapshot: payload.fullSnapshot || null,
-    });
+    const historyJson = JSON.stringify(history);
 
     appendRows_(getSheet_(spreadsheet, BATCH_SHEET_NAME, batchHeaders_()), [[
       receivedAt,
@@ -58,9 +54,9 @@ function doPost(e) {
       payload.userName || "",
       payload.deviceId || "",
       payload.appVersion || "",
-      snapshotQuestions.length || changes.length,
-      snapshotDaily.length,
-      payloadJson,
+      questionCount,
+      dailyCount,
+      historyJson,
     ]]);
     appendRows_(getSheet_(spreadsheet, LOG_SHEET_NAME, logHeaders_()), [[
       receivedAt,
@@ -69,10 +65,10 @@ function doPost(e) {
       payload.userName || "",
       payload.deviceId || "",
       payload.appVersion || "",
-      changes.length,
-      snapshotQuestions.length,
-      snapshotDaily.length,
-      payloadJson.slice(0, 45000),
+      questionCount,
+      0,
+      dailyCount,
+      historyJson.slice(0, 45000),
     ]]);
 
     return ContentService
@@ -100,6 +96,40 @@ function jsonOutput_(e, payload) {
   return ContentService
     .createTextOutput(json)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function normalizeHistory_(history) {
+  return {
+    questions: history && typeof history.questions === "object" ? history.questions : {},
+    daily: history && typeof history.daily === "object" ? history.daily : {},
+  };
+}
+
+function historyFromPayload_(payload) {
+  const history = { questions: {}, daily: {} };
+  const snapshot = payload.fullSnapshot || null;
+
+  if (snapshot) {
+    (snapshot.questions || []).forEach((item) => {
+      if (item.questionId && item.questionHistory) {
+        history.questions[item.questionId] = item.questionHistory;
+      }
+    });
+    (snapshot.daily || []).forEach((item) => {
+      if (item.date) history.daily[item.date] = item.stats || {};
+    });
+  }
+
+  (payload.changes || []).forEach((change) => {
+    if (change.questionId && change.questionHistory) {
+      history.questions[change.questionId] = change.questionHistory;
+    }
+    if (change.daily && change.daily.date) {
+      history.daily[change.daily.date] = change.daily.stats || {};
+    }
+  });
+
+  return history;
 }
 
 function buildQuestionRows_(payload, receivedAt) {
@@ -254,6 +284,20 @@ function buildBatchHistoryForUser_(spreadsheet, userName) {
     try {
       payload = JSON.parse(payloadJson);
     } catch (error) {
+      return;
+    }
+
+    if (payload.questions || payload.daily) {
+      const normalized = normalizeHistory_(payload);
+      history.questions = normalized.questions;
+      history.daily = normalized.daily;
+      return;
+    }
+
+    if (payload.history) {
+      const normalized = normalizeHistory_(payload.history);
+      history.questions = normalized.questions;
+      history.daily = normalized.daily;
       return;
     }
 

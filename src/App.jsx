@@ -413,6 +413,19 @@ function parseBatchHistoryCsv(csvText, userName) {
     }
 
     found = true;
+    if (payload.questions || payload.daily) {
+      history.questions = payload.questions && typeof payload.questions === "object" ? payload.questions : {};
+      history.daily = payload.daily && typeof payload.daily === "object" ? payload.daily : {};
+      return;
+    }
+
+    if (payload.history) {
+      const normalized = normalizeHistory(payload.history);
+      history.questions = normalized.questions;
+      history.daily = normalized.daily;
+      return;
+    }
+
     if (payload.type === "history_replace" || payload.type === "history_snapshot") {
       history.questions = {};
       history.daily = {};
@@ -602,6 +615,7 @@ function backupHistory(userName, history, force = false, snapshot = false) {
     userName,
     deviceId: getDeviceId(),
     savedAt: new Date().toISOString(),
+    history: normalizeHistory(history),
     changes,
     fullSnapshot,
   };
@@ -636,6 +650,7 @@ function replaceSpreadsheetHistory(userName, history) {
     userName,
     deviceId: getDeviceId(),
     savedAt: new Date().toISOString(),
+    history: normalizeHistory(history),
     changes: [],
     fullSnapshot: {
       questions: Object.entries(history.questions || {}).map(([questionId, questionHistory]) => ({
