@@ -7,6 +7,8 @@ import pandaWrong from "./panda_wrong.svg";
 
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
+const HISTORY_BATCH_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=history_backup_batches";
 const HISTORY_BACKUP_URL =
   "https://script.google.com/macros/s/AKfycbyv4WpHkNqQpFwWcebPkiqVgwq6bWr95YoE5gvyrnAwxxUcgqfmxTT8JrmQF2cXoORTyQ/exec";
 
@@ -357,6 +359,9 @@ function normalizeHistory(value) {
 async function loadSpreadsheetHistory(userName) {
   if (!HISTORY_BACKUP_URL || !userName) return { questions: {}, daily: {} };
 
+  const batchHistory = await loadBatchCsvHistory(userName);
+  if (batchHistory) return batchHistory;
+
   const url = new URL(HISTORY_BACKUP_URL);
   url.searchParams.set("userName", userName);
   url.searchParams.set("t", String(Date.now()));
@@ -365,6 +370,77 @@ async function loadSpreadsheetHistory(userName) {
   if (payload.ok === false) throw new Error(payload.error || "Googleスプレッドシート履歴の取得に失敗しました");
 
   return normalizeHistory(payload.history);
+}
+
+async function loadBatchCsvHistory(userName) {
+  try {
+    const url = new URL(HISTORY_BATCH_CSV_URL);
+    url.searchParams.set("t", String(Date.now()));
+    const response = await fetch(url.toString(), { cache: "no-store" });
+    if (!response.ok) return null;
+    const text = await response.text();
+    if (!text.trim() || /html|error/i.test(text.slice(0, 80))) return null;
+    return parseBatchHistoryCsv(text, userName);
+  } catch {
+    return null;
+  }
+}
+
+function parseBatchHistoryCsv(csvText, userName) {
+  const lines = csvText.trim().split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length <= 1) return { questions: {}, daily: {} };
+
+  const headers = parseCsvLine(lines[0]);
+  const userNameIndex = headers.indexOf("userName");
+  const payloadIndex = headers.indexOf("payloadJson");
+  if (userNameIndex < 0 || payloadIndex < 0) return null;
+
+  const history = { questions: {}, daily: {} };
+  let found = false;
+
+  lines.slice(1).forEach((line) => {
+    const values = parseCsvLine(line);
+    if (values[userNameIndex] !== userName) return;
+
+    const payloadText = values[payloadIndex];
+    if (!payloadText) return;
+
+    let payload;
+    try {
+      payload = JSON.parse(payloadText);
+    } catch {
+      return;
+    }
+
+    found = true;
+    if (payload.type === "history_replace" || payload.type === "history_snapshot") {
+      history.questions = {};
+      history.daily = {};
+    }
+
+    const snapshot = payload.fullSnapshot || null;
+    if (snapshot) {
+      (snapshot.questions || []).forEach((item) => {
+        if (item.questionId && item.questionHistory) {
+          history.questions[item.questionId] = item.questionHistory;
+        }
+      });
+      (snapshot.daily || []).forEach((item) => {
+        if (item.date) history.daily[item.date] = item.stats || {};
+      });
+    }
+
+    (payload.changes || []).forEach((change) => {
+      if (change.questionId && change.questionHistory) {
+        history.questions[change.questionId] = change.questionHistory;
+      }
+      if (change.daily && change.daily.date) {
+        history.daily[change.daily.date] = change.daily.stats || {};
+      }
+    });
+  });
+
+  return found ? normalizeHistory(history) : { questions: {}, daily: {} };
 }
 
 function fetchJsonp(url) {
@@ -529,6 +605,13 @@ function backupHistory(userName, history, force = false, snapshot = false) {
     changes,
     fullSnapshot,
   };
+
+  const snapshotItemCount =
+    (fullSnapshot?.questions?.length || 0) + (fullSnapshot?.daily?.length || 0);
+  if (changes.length === 0 && snapshotItemCount === 0) {
+    markHistoryBackupDone(userName);
+    return;
+  }
 
   fetch(HISTORY_BACKUP_URL, {
     method: "POST",

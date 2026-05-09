@@ -40,6 +40,12 @@ function doPost(e) {
     const changes = payload.changes || [];
     const snapshotQuestions = payload.fullSnapshot ? payload.fullSnapshot.questions || [] : [];
     const snapshotDaily = payload.fullSnapshot ? payload.fullSnapshot.daily || [] : [];
+    const isMeaningfulEmpty = payload.type === "history_replace";
+    if (!isMeaningfulEmpty && changes.length === 0 && snapshotQuestions.length === 0 && snapshotDaily.length === 0) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, skipped: true, reason: "empty payload" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     const payloadJson = JSON.stringify({
       type: payload.type || "",
       changes,
