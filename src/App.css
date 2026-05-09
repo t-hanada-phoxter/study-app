@@ -423,10 +423,37 @@ button { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   color: #9a3412;
   font-size: 14px;
   font-weight: 1000;
   margin: 4px 3px 8px;
+}
+
+.studyTop > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.studyCounters {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  text-align: right;
+}
+
+.studyCounters strong {
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.studyCounters small {
+  max-width: 154px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .progressBar {

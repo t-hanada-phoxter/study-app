@@ -20,7 +20,7 @@ const SLOW_ANSWER_MS = 3000;
 const SESSION_SIZE = 25;
 const HISTORY_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const HISTORY_BACKUP_EVERY_ANSWERS = 5;
-const DEFAULT_USERS = ["user1", "user2", "user3", "user4", "user5"];
+const DEFAULT_USERS = ["IT", "TM", "YK", "HR", "IC", "OT"];
 const ANSWER_FORMATS = {
   CHOICE: "choice",
   INPUT: "input",
@@ -347,6 +347,29 @@ function loadHistory(userName) {
   }
 }
 
+function normalizeHistory(value) {
+  return {
+    questions: value?.questions && typeof value.questions === "object" ? value.questions : {},
+    daily: value?.daily && typeof value.daily === "object" ? value.daily : {},
+  };
+}
+
+async function loadSpreadsheetHistory(userName) {
+  if (!HISTORY_BACKUP_URL || !userName) return { questions: {}, daily: {} };
+
+  const url = new URL(HISTORY_BACKUP_URL);
+  url.searchParams.set("userName", userName);
+  url.searchParams.set("t", String(Date.now()));
+
+  const response = await fetch(url.toString(), { cache: "no-store" });
+  if (!response.ok) throw new Error("Googleスプレッドシート履歴の取得に失敗しました");
+
+  const payload = await response.json();
+  if (payload.ok === false) throw new Error(payload.error || "Googleスプレッドシート履歴の取得に失敗しました");
+
+  return normalizeHistory(payload.history);
+}
+
 function saveHistory(userName, history, change = null) {
   if (!userName) return;
   localStorage.setItem(getHistoryKey(userName), JSON.stringify(history));
@@ -493,6 +516,39 @@ function backupHistory(userName, history, force = false) {
     .catch((error) => markHistoryBackupFailed(userName, error));
 }
 
+function replaceSpreadsheetHistory(userName, history) {
+  if (!HISTORY_BACKUP_URL || !userName) return;
+
+  const payload = {
+    type: "history_replace",
+    appVersion: "v4",
+    userName,
+    deviceId: getDeviceId(),
+    savedAt: new Date().toISOString(),
+    changes: [],
+    fullSnapshot: {
+      questions: Object.entries(history.questions || {}).map(([questionId, questionHistory]) => ({
+        questionId,
+        questionHistory,
+      })),
+      daily: Object.entries(history.daily || {}).map(([date, stats]) => ({ date, stats })),
+    },
+  };
+
+  fetch(HISTORY_BACKUP_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  })
+    .then(() => {
+      clearQueuedBackups(userName);
+      markHistoryBackupDone(userName);
+    })
+    .catch((error) => markHistoryBackupFailed(userName, error));
+}
+
 function getQuestionHistory(history, questionId) {
   return history.questions?.[questionId];
 }
@@ -566,8 +622,8 @@ function computeNextSchedule(item, isCorrect, meta) {
   };
 }
 
-function updateHistory(userName, questionId, isCorrect, meta) {
-  let history = loadHistory(userName);
+function updateHistory(userName, baseHistory, questionId, isCorrect, meta) {
+  let history = normalizeHistory(baseHistory);
   const current = history.questions?.[questionId] || {
     correct: 0,
     wrong: 0,
@@ -759,8 +815,9 @@ export default function App() {
   const [error, setError] = useState("");
   const [screen, setScreen] = useState("login");
   const [userName, setUserName] = useState(localStorage.getItem(CURRENT_USER_KEY) || "");
-  const [loginInput, setLoginInput] = useState(localStorage.getItem(CURRENT_USER_KEY) || "user1");
-  const [history, setHistory] = useState(() => loadHistory(localStorage.getItem(CURRENT_USER_KEY) || ""));
+  const [loginInput, setLoginInput] = useState(localStorage.getItem(CURRENT_USER_KEY) || DEFAULT_USERS[0]);
+  const [history, setHistory] = useState({ questions: {}, daily: {} });
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [subject, setSubject] = useState("");
   const [unit, setUnit] = useState("");
   const [largeCategory, setLargeCategory] = useState("");
@@ -776,6 +833,7 @@ export default function App() {
   const [showChoices, setShowChoices] = useState(false);
   const [choiceShownAt, setChoiceShownAt] = useState(Date.now());
   const [answerMeta, setAnswerMeta] = useState(null);
+  const [historyCheckpoints, setHistoryCheckpoints] = useState({});
   const [headerVisible, setHeaderVisible] = useState(false);
   const [result, setResult] = useState({ total: 0, correct: 0, wrong: 0 });
   const [sessionStreak, setSessionStreak] = useState(0);
@@ -799,10 +857,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (userName) {
-      setHistory(loadHistory(userName));
-      setScreen("home");
-    }
+    if (!userName) return undefined;
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    setError("");
+
+    loadSpreadsheetHistory(userName)
+      .then((spreadsheetHistory) => {
+        if (cancelled) return;
+        setHistory(spreadsheetHistory);
+        localStorage.setItem(getHistoryKey(userName), JSON.stringify(spreadsheetHistory));
+        setScreen("home");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const fallback = loadHistory(userName);
+        setHistory(fallback);
+        setError(`${err.message}。端末内の履歴を一時表示しています。`);
+        setScreen("home");
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [userName]);
 
   useEffect(() => {
@@ -933,14 +1014,13 @@ export default function App() {
     localStorage.setItem(CURRENT_USER_KEY, fixedName);
     setUserName(fixedName);
     setLoginInput(fixedName);
-    setHistory(loadHistory(fixedName));
     setScreen("home");
   }
 
   function logout() {
     localStorage.removeItem(CURRENT_USER_KEY);
     setUserName("");
-    setLoginInput("user1");
+    setLoginInput(DEFAULT_USERS[0]);
     setScreen("login");
   }
 
@@ -1002,6 +1082,7 @@ export default function App() {
       setSelectedIndex(null);
       setTypedAnswer("");
       setAnswerMeta(null);
+      setHistoryCheckpoints({});
       setSessionStreak(0);
       setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
       setScreen("study");
@@ -1038,6 +1119,7 @@ export default function App() {
     setSelectedIndex(null);
     setTypedAnswer("");
     setAnswerMeta(null);
+    setHistoryCheckpoints({});
     setSessionStreak(0);
     setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
     setScreen("study");
@@ -1092,7 +1174,15 @@ export default function App() {
       ...answerMeta,
       hesitated: markHesitated,
     };
-    const newHistory = updateHistory(userName, q.id, isCorrect, meta);
+    setHistoryCheckpoints((prev) => ({
+      ...prev,
+      [currentIndex]: {
+        history,
+        result,
+        sessionStreak,
+      },
+    }));
+    const newHistory = updateHistory(userName, history, q.id, isCorrect, meta);
 
     setHistory(newHistory);
     setResult((prev) => ({
@@ -1103,6 +1193,33 @@ export default function App() {
     setSessionStreak(isCorrect ? sessionStreak + 1 : 0);
 
     nextQuestion();
+  }
+
+  function goPreviousQuestion() {
+    if (currentIndex <= 0) return;
+
+    const previousIndex = currentIndex - 1;
+    const checkpoint = historyCheckpoints[previousIndex];
+
+    if (checkpoint) {
+      setHistory(checkpoint.history);
+      localStorage.setItem(getHistoryKey(userName), JSON.stringify(checkpoint.history));
+      replaceSpreadsheetHistory(userName, checkpoint.history);
+      setResult(checkpoint.result);
+      setSessionStreak(checkpoint.sessionStreak);
+      setHistoryCheckpoints((prev) => {
+        const next = { ...prev };
+        delete next[previousIndex];
+        return next;
+      });
+    }
+
+    setCurrentIndex(previousIndex);
+    setSelectedIndex(null);
+    setTypedAnswer("");
+    setAnswerMeta(null);
+    setShowChoices(answerFormat === ANSWER_FORMATS.INPUT);
+    setChoiceShownAt(Date.now());
   }
 
   function nextQuestion() {
@@ -1145,6 +1262,19 @@ export default function App() {
   const answered = selectedIndex !== null;
   const isCurrentAnswerCorrect = answered && currentQuestion && selectedIndex === currentQuestion.answerIndex;
   const previewStreak = isCurrentAnswerCorrect ? sessionStreak + 1 : 0;
+  const currentLargeCategoryQuestions = currentQuestion
+    ? questions.filter(
+        (q) =>
+          q.subject === currentQuestion.subject &&
+          q.unit === currentQuestion.unit &&
+          q.largeCategory === currentQuestion.largeCategory &&
+          matchesTag(q, selectedTag) &&
+          matchesDifficulty(q, selectedDifficulty)
+      )
+    : [];
+  const currentLargeCategoryIndex = currentQuestion
+    ? currentLargeCategoryQuestions.findIndex((q) => q.id === currentQuestion.id) + 1
+    : 0;
   const percent = result.total === 0 ? 0 : Math.round((result.correct / result.total) * 100);
   const calendarYear = calendarDate.getFullYear();
   const calendarMonth = calendarDate.getMonth();
@@ -1155,6 +1285,15 @@ export default function App() {
       <div className="app">
         <div className="brandHeader"><div className="logo">M</div><h1>受験カード</h1></div>
         <div className="panel loading">問題データを読み込み中...</div>
+      </div>
+    );
+  }
+
+  if (screen !== "login" && historyLoading) {
+    return (
+      <div className="app">
+        <div className="brandHeader"><div className="logo">M</div><h1>受験カード</h1></div>
+        <div className="panel loading">Googleスプレッドシートの学習履歴を読み込み中...</div>
       </div>
     );
   }
@@ -1418,7 +1557,14 @@ export default function App() {
         <>
           <div className="studyTop">
             <span>{[subject, unit, largeCategory, middleCategory].filter(Boolean).join(" / ")}</span>
-            <strong>{currentIndex + 1}/{sessionQuestions.length}</strong>
+            <div className="studyCounters" aria-label="問題番号">
+              <strong>{currentIndex + 1}/{sessionQuestions.length}</strong>
+              {currentLargeCategoryIndex > 0 && (
+                <small>
+                  {currentQuestion.largeCategory} {currentLargeCategoryIndex}/{currentLargeCategoryQuestions.length}
+                </small>
+              )}
+            </div>
           </div>
           <div className="progressBar"><div style={{ width: `${((currentIndex + 1) / sessionQuestions.length) * 100}%` }} /></div>
 
@@ -1492,6 +1638,9 @@ export default function App() {
           )}
 
           <button className="bigSecondary" onClick={() => setScreen("result")}>終了する</button>
+          <button className="bigSecondary" onClick={goPreviousQuestion} disabled={currentIndex === 0}>
+            一つ前に戻る
+          </button>
 
           {answered && (
             <div className="resultModal" role="dialog" aria-modal="true">

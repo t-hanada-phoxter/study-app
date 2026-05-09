@@ -3,7 +3,21 @@ const QUESTION_SHEET_NAME = "history_questions";
 const DAILY_SHEET_NAME = "history_daily";
 const SCRIPT_VERSION = "history-row-backup-v2";
 
-function doGet() {
+function doGet(e) {
+  const userName = e && e.parameter ? String(e.parameter.userName || "").trim() : "";
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (userName) {
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        ok: true,
+        version: SCRIPT_VERSION,
+        userName,
+        history: buildHistoryForUser_(spreadsheet, userName),
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   return ContentService
     .createTextOutput(JSON.stringify({
       ok: true,
@@ -21,6 +35,10 @@ function doPost(e) {
     const payload = JSON.parse(e.postData.contents || "{}");
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const receivedAt = new Date();
+
+    if (payload.type === "history_replace") {
+      replaceRowsForUser_(spreadsheet, payload.userName || "");
+    }
 
     const questionRows = buildQuestionRows_(payload, receivedAt);
     const dailyRows = buildDailyRows_(payload, receivedAt);
@@ -149,6 +167,153 @@ function getSheet_(spreadsheet, name, headers) {
 function appendRows_(sheet, rows) {
   if (!rows.length) return;
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+function replaceRowsForUser_(spreadsheet, userName) {
+  if (!userName) return;
+  removeRowsForUser_(getSheet_(spreadsheet, QUESTION_SHEET_NAME, questionHeaders_()), userName);
+  removeRowsForUser_(getSheet_(spreadsheet, DAILY_SHEET_NAME, dailyHeaders_()), userName);
+}
+
+function removeRowsForUser_(sheet, userName) {
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  const index = headerIndex_(headers);
+  const kept = [headers].concat(values.slice(1).filter((row) => String(row[index.userName] || "") !== userName));
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, kept.length, kept[0].length).setValues(kept);
+}
+
+function buildHistoryForUser_(spreadsheet, userName) {
+  const resetAfter = latestResetTimeForUser_(spreadsheet, userName);
+  return {
+    questions: buildQuestionHistoryForUser_(spreadsheet, userName, resetAfter),
+    daily: buildDailyHistoryForUser_(spreadsheet, userName, resetAfter),
+  };
+}
+
+function buildQuestionHistoryForUser_(spreadsheet, userName, resetAfter) {
+  const sheet = spreadsheet.getSheetByName(QUESTION_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift();
+  const index = headerIndex_(headers);
+  const questions = {};
+
+  values.forEach((row) => {
+    if (String(row[index.userName] || "") !== userName) return;
+    if (resetAfter && dateValue_(row[index.receivedAt]) <= resetAfter) return;
+    const questionId = String(row[index.questionId] || "");
+    if (!questionId) return;
+
+    questions[questionId] = {
+      correct: numberValue_(row[index.correct]),
+      wrong: numberValue_(row[index.wrong]),
+      lastResult: String(row[index.lastResult] || ""),
+      streak: numberValue_(row[index.streak]),
+      bestStreak: numberValue_(row[index.bestStreak]),
+      mastered: boolValue_(row[index.mastered]),
+      reviewLevel: numberValue_(row[index.reviewLevel]),
+      intervalDays: numberValue_(row[index.intervalDays]),
+      ease: numberValue_(row[index.ease]) || 2.2,
+      weakWeight: numberValue_(row[index.weakWeight]),
+      nextReviewAt: dateText_(row[index.nextReviewAt]),
+      firstAnsweredAt: dateText_(row[index.firstAnsweredAt]),
+      lastAnsweredAt: dateText_(row[index.lastAnsweredAt]),
+      answeredCount: numberValue_(row[index.answeredCount]),
+      quickCount: numberValue_(row[index.quickCount]),
+      slowCount: numberValue_(row[index.slowCount]),
+      lastSlow: boolValue_(row[index.lastSlow]),
+      hesitatedCount: numberValue_(row[index.hesitatedCount]),
+      responseTimeTotalMs: numberValue_(row[index.responseTimeTotalMs]),
+    };
+  });
+
+  return questions;
+}
+
+function buildDailyHistoryForUser_(spreadsheet, userName, resetAfter) {
+  const sheet = spreadsheet.getSheetByName(DAILY_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift();
+  const index = headerIndex_(headers);
+  const daily = {};
+
+  values.forEach((row) => {
+    if (String(row[index.userName] || "") !== userName) return;
+    if (resetAfter && dateValue_(row[index.receivedAt]) <= resetAfter) return;
+    const date = dateText_(row[index.date]);
+    if (!date) return;
+
+    daily[date] = {
+      studied: numberValue_(row[index.studied]),
+      correct: numberValue_(row[index.correct]),
+      wrong: numberValue_(row[index.wrong]),
+      quick: numberValue_(row[index.quick]),
+      slow: numberValue_(row[index.slow]),
+      hesitated: numberValue_(row[index.hesitated]),
+    };
+  });
+
+  return daily;
+}
+
+function latestResetTimeForUser_(spreadsheet, userName) {
+  const sheet = spreadsheet.getSheetByName(LOG_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift();
+  const index = headerIndex_(headers);
+  let latest = null;
+
+  values.forEach((row) => {
+    if (String(row[index.userName] || "") !== userName) return;
+    if (String(row[index.type] || "") !== "history_snapshot") return;
+    if (numberValue_(row[index.questionRows]) !== 0 || numberValue_(row[index.dailyRows]) !== 0) return;
+
+    const receivedAt = dateValue_(row[index.receivedAt]);
+    if (receivedAt && (!latest || receivedAt > latest)) latest = receivedAt;
+  });
+
+  return latest;
+}
+
+function headerIndex_(headers) {
+  return headers.reduce((index, header, column) => {
+    index[String(header)] = column;
+    return index;
+  }, {});
+}
+
+function numberValue_(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function boolValue_(value) {
+  return value === true || String(value).toLowerCase() === "true";
+}
+
+function dateValue_(value) {
+  if (!value) return null;
+  if (Object.prototype.toString.call(value) === "[object Date]") return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function dateText_(value) {
+  if (!value) return "";
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+  return String(value);
 }
 
 function questionHeaders_() {
