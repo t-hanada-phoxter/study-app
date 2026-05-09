@@ -17,6 +17,7 @@ const CURRENT_USER_KEY = "studyApp.currentUser.v4";
 const DEVICE_ID_KEY = "studyApp.deviceId.v1";
 const BACKUP_META_KEY = "studyApp.historyBackupMeta.v1";
 const BACKUP_QUEUE_KEY = "studyApp.historyBackupQueue.v1";
+const HISTORY_LOAD_META_KEY = "studyApp.historyLoadMeta.v1";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
@@ -382,7 +383,6 @@ async function loadSpreadsheetHistory(userName) {
 async function loadBatchGvizHistory(userName) {
   try {
     const rows = await fetchGvizRows("history_backup_batches");
-    if (rows.length > 0 && !("userName" in rows[0])) return null;
     return parseBatchHistoryRows(rows, userName);
   } catch {
     return null;
@@ -429,9 +429,10 @@ function parseBatchHistoryRows(rows, userName) {
   let found = false;
 
   rows.forEach((row) => {
-    if (row.userName !== userName) return;
+    const rowUserName = String(row.userName || row[2] || "").trim();
+    if (rowUserName !== userName) return;
 
-    const payloadText = row.historyJson || row.payloadJson || "";
+    const payloadText = String(row.historyJson || row.payloadJson || row[7] || "").trim();
     if (!payloadText) return;
 
     let payload;
@@ -482,7 +483,7 @@ function parseBatchHistoryRows(rows, userName) {
     });
   });
 
-  return found ? normalizeHistory(history) : { questions: {}, daily: {} };
+  return found ? normalizeHistory(history) : null;
 }
 
 function fetchGvizRows(sheetName) {
@@ -507,16 +508,22 @@ function fetchGvizRows(sheetName) {
         return;
       }
 
-      const cols = payload.table?.cols || [];
-      let labels = cols.map((col) => col.label || col.id || "");
-      if (!labels.includes("userName") && sheetName === "history_backup_batches") {
-        labels = ["receivedAt", "savedAt", "userName", "deviceId", "appVersion", "questionCount", "dailyCount", "historyJson"];
-      }
       const rows = (payload.table?.rows || []).map((row) => {
         const next = {};
         (row.c || []).forEach((cell, index) => {
-          next[labels[index]] = cell?.v ?? cell?.f ?? "";
+          const value = cell?.v ?? cell?.f ?? "";
+          next[index] = value;
         });
+        if (sheetName === "history_backup_batches") {
+          next.receivedAt = next[0] || "";
+          next.savedAt = next[1] || "";
+          next.userName = next[2] || "";
+          next.deviceId = next[3] || "";
+          next.appVersion = next[4] || "";
+          next.questionCount = next[5] || "";
+          next.dailyCount = next[6] || "";
+          next.historyJson = next[7] || "";
+        }
         return next;
       });
       resolve(rows);
@@ -595,6 +602,26 @@ function loadBackupMeta() {
 
 function saveBackupMeta(meta) {
   localStorage.setItem(BACKUP_META_KEY, JSON.stringify(meta));
+}
+
+function loadHistoryLoadMeta() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_LOAD_META_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function markHistoryLoadMeta(userName, status, history, source = "") {
+  const meta = loadHistoryLoadMeta();
+  meta[userName] = {
+    status,
+    source,
+    loadedAt: Date.now(),
+    questionCount: Object.keys(history?.questions || {}).length,
+    dailyCount: Object.keys(history?.daily || {}).length,
+  };
+  localStorage.setItem(HISTORY_LOAD_META_KEY, JSON.stringify(meta));
 }
 
 function loadBackupQueue() {
@@ -1081,6 +1108,7 @@ export default function App() {
         const nextHistory = spreadsheetHistory || loadHistory(userName);
         setHistory(nextHistory);
         localStorage.setItem(getHistoryKey(userName), JSON.stringify(nextHistory));
+        markHistoryLoadMeta(userName, spreadsheetHistory ? "spreadsheet" : "local", nextHistory, spreadsheetHistory ? "history_backup_batches" : "localStorage");
         if (!spreadsheetHistory) {
           setError("Googleスプレッドシート履歴を読み込めなかったため、端末内の履歴で開始しました。");
         }
@@ -1090,6 +1118,7 @@ export default function App() {
         if (cancelled) return;
         const fallback = loadHistory(userName);
         setHistory(fallback);
+        markHistoryLoadMeta(userName, "local", fallback, "localStorage");
         setError(`${err.message}。端末内の履歴を一時表示しています。`);
         setScreen("home");
       })
@@ -1221,6 +1250,7 @@ export default function App() {
     [questions, history]
   );
   const backupMeta = userName ? loadBackupMeta()[userName] || {} : {};
+  const historyLoadMeta = userName ? loadHistoryLoadMeta()[userName] || {} : {};
   const backupConfigured = Boolean(HISTORY_BACKUP_URL);
 
   function login(name) {
@@ -1990,6 +2020,13 @@ export default function App() {
               保存キー: {userName ? getHistoryKey(userName) : "未ログイン"} / バックアップ: {backupConfigured ? "有効" : "未設定"}
               {backupMeta.lastBackupAt ? ` / 最終送信: ${new Date(backupMeta.lastBackupAt).toLocaleString()}` : ""}
             </p>
+            {historyLoadMeta.loadedAt && (
+              <p className="description">
+                履歴読込: {historyLoadMeta.status === "spreadsheet" ? "スプレッドシート" : "端末"}
+                {` / 問題 ${historyLoadMeta.questionCount || 0} / 日別 ${historyLoadMeta.dailyCount || 0}`}
+                {` / ${new Date(historyLoadMeta.loadedAt).toLocaleString()}`}
+              </p>
+            )}
           </section>
           <section className="panel">
             <h2 className="panelTitle">学習履歴</h2>
