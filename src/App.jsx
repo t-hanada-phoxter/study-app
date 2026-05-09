@@ -366,14 +366,17 @@ async function loadSpreadsheetHistory(userName) {
   const batchHistory = await loadBatchCsvHistory(userName);
   if (batchHistory) return batchHistory;
 
-  const url = new URL(HISTORY_BACKUP_URL);
-  url.searchParams.set("userName", userName);
-  url.searchParams.set("t", String(Date.now()));
+  try {
+    const url = new URL(HISTORY_BACKUP_URL);
+    url.searchParams.set("userName", userName);
+    url.searchParams.set("t", String(Date.now()));
 
-  const payload = await fetchJsonp(url);
-  if (payload.ok === false) throw new Error(payload.error || "Googleスプレッドシート履歴の取得に失敗しました");
-
-  return normalizeHistory(payload.history);
+    const payload = await fetchJsonp(url);
+    if (payload.ok === false) return null;
+    return normalizeHistory(payload.history);
+  } catch {
+    return null;
+  }
 }
 
 async function loadBatchGvizHistory(userName) {
@@ -505,7 +508,10 @@ function fetchGvizRows(sheetName) {
       }
 
       const cols = payload.table?.cols || [];
-      const labels = cols.map((col) => col.label || col.id || "");
+      let labels = cols.map((col) => col.label || col.id || "");
+      if (!labels.includes("userName") && sheetName === "history_backup_batches") {
+        labels = ["receivedAt", "savedAt", "userName", "deviceId", "appVersion", "questionCount", "dailyCount", "historyJson"];
+      }
       const rows = (payload.table?.rows || []).map((row) => {
         const next = {};
         (row.c || []).forEach((cell, index) => {
@@ -1072,8 +1078,12 @@ export default function App() {
     loadSpreadsheetHistory(userName)
       .then((spreadsheetHistory) => {
         if (cancelled) return;
-        setHistory(spreadsheetHistory);
-        localStorage.setItem(getHistoryKey(userName), JSON.stringify(spreadsheetHistory));
+        const nextHistory = spreadsheetHistory || loadHistory(userName);
+        setHistory(nextHistory);
+        localStorage.setItem(getHistoryKey(userName), JSON.stringify(nextHistory));
+        if (!spreadsheetHistory) {
+          setError("Googleスプレッドシート履歴を読み込めなかったため、端末内の履歴で開始しました。");
+        }
         setScreen("home");
       })
       .catch((err) => {
