@@ -11,7 +11,7 @@ const HISTORY_BATCH_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=history_backup_batches";
 const SHEET_ID = "1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY";
 const HISTORY_BACKUP_URL =
-  "https://script.google.com/macros/s/AKfycbyv4WpHkNqQpFwWcebPkiqVgwq6bWr95YoE5gvyrnAwxxUcgqfmxTT8JrmQF2cXoORTyQ/exec";
+  "https://script.google.com/macros/s/AKfycbxosMO-JAUokEACHa23JLuw59_lumjxJ_Tdv5sH2N3OgLxinkp10VM0FWsomGXLIsnjoA/exec";
 
 const CURRENT_USER_KEY = "studyApp.currentUser.v4";
 const DEVICE_ID_KEY = "studyApp.deviceId.v1";

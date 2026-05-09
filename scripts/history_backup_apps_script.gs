@@ -3,10 +3,15 @@ const BATCH_SHEET_NAME = "history_backup_batches";
 const QUESTION_SHEET_NAME = "history_questions";
 const DAILY_SHEET_NAME = "history_daily";
 const SCRIPT_VERSION = "history-batch-backup-v3";
+const SPREADSHEET_ID = "1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY";
+
+function getSpreadsheet_() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
 
 function doGet(e) {
   const userName = e && e.parameter ? String(e.parameter.userName || "").trim() : "";
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheet_();
 
   if (userName) {
     return jsonOutput_(e, {
@@ -30,7 +35,7 @@ function doPost(e) {
 
   try {
     const payload = JSON.parse(e.postData.contents || "{}");
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheet = getSpreadsheet_();
     const receivedAt = new Date();
 
     if (payload.type === "history_replace") {
