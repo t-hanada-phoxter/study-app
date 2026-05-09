@@ -622,7 +622,9 @@ function backupHistory(userName, history, force = false, snapshot = false) {
 
   const snapshotItemCount =
     (fullSnapshot?.questions?.length || 0) + (fullSnapshot?.daily?.length || 0);
-  if (changes.length === 0 && snapshotItemCount === 0) {
+  const historyItemCount =
+    Object.keys(payload.history.questions || {}).length + Object.keys(payload.history.daily || {}).length;
+  if (changes.length === 0 && snapshotItemCount === 0 && historyItemCount === 0) {
     markHistoryBackupDone(userName);
     return;
   }
@@ -1324,7 +1326,7 @@ export default function App() {
     }));
     setSessionStreak(isCorrect ? sessionStreak + 1 : 0);
 
-    nextQuestion();
+    nextQuestion(newHistory);
   }
 
   function goPreviousQuestion() {
@@ -1354,8 +1356,9 @@ export default function App() {
     setChoiceShownAt(Date.now());
   }
 
-  function nextQuestion() {
+  function nextQuestion(historyToSave = history) {
     if (currentIndex >= sessionQuestions.length - 1) {
+      backupHistory(userName, historyToSave, true, true);
       setScreen("result");
       return;
     }
@@ -1372,6 +1375,11 @@ export default function App() {
     setHistory({ questions: {}, daily: {} });
     backupHistory(userName, { questions: {}, daily: {} }, true, true);
     alert("学習履歴をリセットしました");
+  }
+
+  function finishSession() {
+    backupHistory(userName, history, true, true);
+    setScreen("result");
   }
 
   function manualBackupHistory() {
@@ -1769,7 +1777,7 @@ export default function App() {
             </button>
           )}
 
-          <button className="bigSecondary" onClick={() => setScreen("result")}>終了する</button>
+          <button className="bigSecondary" onClick={finishSession}>終了する</button>
           <button className="bigSecondary" onClick={goPreviousQuestion} disabled={currentIndex === 0}>
             一つ前に戻る
           </button>
