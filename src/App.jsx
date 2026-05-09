@@ -9,6 +9,7 @@ const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=questions";
 const HISTORY_BATCH_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY/gviz/tq?tqx=out:csv&sheet=history_backup_batches";
+const SHEET_ID = "1ZQn3vKJH6fPpJIrwJiPYfIvbm9p9-Qq7kiRbUpfIuoY";
 const HISTORY_BACKUP_URL =
   "https://script.google.com/macros/s/AKfycbyv4WpHkNqQpFwWcebPkiqVgwq6bWr95YoE5gvyrnAwxxUcgqfmxTT8JrmQF2cXoORTyQ/exec";
 
@@ -359,6 +360,9 @@ function normalizeHistory(value) {
 async function loadSpreadsheetHistory(userName) {
   if (!HISTORY_BACKUP_URL || !userName) return { questions: {}, daily: {} };
 
+  const gvizHistory = await loadBatchGvizHistory(userName);
+  if (gvizHistory) return gvizHistory;
+
   const batchHistory = await loadBatchCsvHistory(userName);
   if (batchHistory) return batchHistory;
 
@@ -370,6 +374,16 @@ async function loadSpreadsheetHistory(userName) {
   if (payload.ok === false) throw new Error(payload.error || "Googleスプレッドシート履歴の取得に失敗しました");
 
   return normalizeHistory(payload.history);
+}
+
+async function loadBatchGvizHistory(userName) {
+  try {
+    const rows = await fetchGvizRows("history_backup_batches");
+    if (rows.length > 0 && !("userName" in rows[0])) return null;
+    return parseBatchHistoryRows(rows, userName);
+  } catch {
+    return null;
+  }
 }
 
 async function loadBatchCsvHistory(userName) {
@@ -395,14 +409,26 @@ function parseBatchHistoryCsv(csvText, userName) {
   const payloadIndex = headers.includes("historyJson") ? headers.indexOf("historyJson") : headers.indexOf("payloadJson");
   if (userNameIndex < 0 || payloadIndex < 0) return null;
 
+  return parseBatchHistoryRows(
+    lines.slice(1).map((line) => {
+      const values = parseCsvLine(line);
+      return {
+        userName: values[userNameIndex],
+        historyJson: values[payloadIndex],
+      };
+    }),
+    userName
+  );
+}
+
+function parseBatchHistoryRows(rows, userName) {
   const history = { questions: {}, daily: {} };
   let found = false;
 
-  lines.slice(1).forEach((line) => {
-    const values = parseCsvLine(line);
-    if (values[userNameIndex] !== userName) return;
+  rows.forEach((row) => {
+    if (row.userName !== userName) return;
 
-    const payloadText = values[payloadIndex];
+    const payloadText = row.historyJson || row.payloadJson || "";
     if (!payloadText) return;
 
     let payload;
@@ -456,6 +482,54 @@ function parseBatchHistoryCsv(csvText, userName) {
   return found ? normalizeHistory(history) : { questions: {}, daily: {} };
 }
 
+function fetchGvizRows(sheetName) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `studyAppSheet_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const url = new URL(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`);
+    const script = document.createElement("script");
+    const cleanup = () => {
+      delete window[callbackName];
+      script.remove();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Google Sheets gviz timeout"));
+    }, 12000);
+
+    window[callbackName] = (payload) => {
+      window.clearTimeout(timer);
+      cleanup();
+      if (payload.status && payload.status !== "ok") {
+        reject(new Error(payload.errors?.[0]?.detailed_message || "Google Sheets gviz failed"));
+        return;
+      }
+
+      const cols = payload.table?.cols || [];
+      const labels = cols.map((col) => col.label || col.id || "");
+      const rows = (payload.table?.rows || []).map((row) => {
+        const next = {};
+        (row.c || []).forEach((cell, index) => {
+          next[labels[index]] = cell?.v ?? cell?.f ?? "";
+        });
+        return next;
+      });
+      resolve(rows);
+    };
+
+    url.searchParams.set("sheet", sheetName);
+    url.searchParams.set("tqx", `responseHandler:${callbackName}`);
+    url.searchParams.set("t", String(Date.now()));
+    script.src = url.toString();
+    script.async = true;
+    script.onerror = () => {
+      window.clearTimeout(timer);
+      cleanup();
+      reject(new Error("Google Sheets gviz script failed"));
+    };
+    document.head.appendChild(script);
+  });
+}
+
 function fetchJsonp(url) {
   return new Promise((resolve, reject) => {
     const callbackName = `studyAppHistory_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -491,7 +565,7 @@ function saveHistory(userName, history, change = null, forceFlush = false) {
   if (!userName) return;
   localStorage.setItem(getHistoryKey(userName), JSON.stringify(history));
   if (change) enqueueHistoryBackup(userName, change);
-  backupHistory(userName, history, forceFlush);
+  if (forceFlush) backupHistory(userName, history, true, true);
 }
 
 function getDeviceId() {
@@ -750,7 +824,7 @@ function computeNextSchedule(item, isCorrect, meta) {
   };
 }
 
-function updateHistory(userName, baseHistory, questionId, isCorrect, meta, forceFlush = false) {
+function updateHistory(userName, baseHistory, questionId, isCorrect, meta) {
   let history = normalizeHistory(baseHistory);
   const current = history.questions?.[questionId] || {
     correct: 0,
@@ -823,8 +897,7 @@ function updateHistory(userName, baseHistory, questionId, isCorrect, meta, force
         date: dailyKey,
         stats: history.daily?.[dailyKey] || {},
       },
-    },
-    forceFlush
+    }
   );
   return history;
 }
@@ -1307,7 +1380,6 @@ export default function App() {
       ...answerMeta,
       hesitated: markHesitated,
     };
-    const isLastQuestion = currentIndex >= sessionQuestions.length - 1;
     setHistoryCheckpoints((prev) => ({
       ...prev,
       [currentIndex]: {
@@ -1316,7 +1388,7 @@ export default function App() {
         sessionStreak,
       },
     }));
-    const newHistory = updateHistory(userName, history, q.id, isCorrect, meta, isLastQuestion);
+    const newHistory = updateHistory(userName, history, q.id, isCorrect, meta);
 
     setHistory(newHistory);
     setResult((prev) => ({
