@@ -361,13 +361,41 @@ async function loadSpreadsheetHistory(userName) {
   url.searchParams.set("userName", userName);
   url.searchParams.set("t", String(Date.now()));
 
-  const response = await fetch(url.toString(), { cache: "no-store" });
-  if (!response.ok) throw new Error("Googleスプレッドシート履歴の取得に失敗しました");
-
-  const payload = await response.json();
+  const payload = await fetchJsonp(url);
   if (payload.ok === false) throw new Error(payload.error || "Googleスプレッドシート履歴の取得に失敗しました");
 
   return normalizeHistory(payload.history);
+}
+
+function fetchJsonp(url) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `studyAppHistory_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const cleanup = () => {
+      delete window[callbackName];
+      script.remove();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Googleスプレッドシート履歴の取得がタイムアウトしました"));
+    }, 12000);
+
+    window[callbackName] = (payload) => {
+      window.clearTimeout(timer);
+      cleanup();
+      resolve(payload);
+    };
+
+    url.searchParams.set("callback", callbackName);
+    script.src = url.toString();
+    script.async = true;
+    script.onerror = () => {
+      window.clearTimeout(timer);
+      cleanup();
+      reject(new Error("Googleスプレッドシート履歴の取得に失敗しました"));
+    };
+    document.head.appendChild(script);
+  });
 }
 
 function saveHistory(userName, history, change = null, forceFlush = false) {

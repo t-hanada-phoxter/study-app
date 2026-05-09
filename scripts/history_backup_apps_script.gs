@@ -9,23 +9,19 @@ function doGet(e) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   if (userName) {
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        ok: true,
-        version: SCRIPT_VERSION,
-        userName,
-        history: buildHistoryForUser_(spreadsheet, userName),
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonOutput_(e, {
+      ok: true,
+      version: SCRIPT_VERSION,
+      userName,
+      history: buildHistoryForUser_(spreadsheet, userName),
+    });
   }
 
-  return ContentService
-      .createTextOutput(JSON.stringify({
-        ok: true,
-        version: SCRIPT_VERSION,
-        sheets: [BATCH_SHEET_NAME, LOG_SHEET_NAME],
-      }))
-    .setMimeType(ContentService.MimeType.JSON);
+  return jsonOutput_(e, {
+    ok: true,
+    version: SCRIPT_VERSION,
+    sheets: [BATCH_SHEET_NAME, LOG_SHEET_NAME],
+  });
 }
 
 function doPost(e) {
@@ -85,6 +81,21 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function jsonOutput_(e, payload) {
+  const callback = e && e.parameter ? String(e.parameter.callback || "").trim() : "";
+  const json = JSON.stringify(payload);
+
+  if (callback && /^[A-Za-z_$][0-9A-Za-z_$]*$/.test(callback)) {
+    return ContentService
+      .createTextOutput(`${callback}(${json});`)
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  return ContentService
+    .createTextOutput(json)
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function buildQuestionRows_(payload, receivedAt) {
