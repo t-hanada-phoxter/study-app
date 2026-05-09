@@ -366,7 +366,9 @@ async function loadSpreadsheetHistory(userName) {
     url.searchParams.set("userName", userName);
     url.searchParams.set("t", String(Date.now()));
 
-    const payload = await fetchJsonp(url);
+    const res = await fetch(url.toString(), { mode: "cors", credentials: "omit" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const payload = await res.json();
     const scriptHistory = normalizeHistory(payload.history);
     if (payload.ok !== false && hasHistory(scriptHistory)) return scriptHistory;
   } catch {
