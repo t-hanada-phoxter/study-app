@@ -18,6 +18,7 @@ const DEVICE_ID_KEY = "studyApp.deviceId.v1";
 const BACKUP_META_KEY = "studyApp.historyBackupMeta.v1";
 const BACKUP_QUEUE_KEY = "studyApp.historyBackupQueue.v1";
 const HISTORY_LOAD_META_KEY = "studyApp.historyLoadMeta.v1";
+const SPEECH_MUTED_KEY = "studyApp.speechMuted.v1";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
@@ -279,6 +280,19 @@ function supportsDirectInput(question) {
   return isVocabQuestion && isEnglishAnswerText(question.choices?.[question.answerIndex]);
 }
 
+function isJapaneseTranslationQuestion(question) {
+  const source = `${question?.id || ""} ${question?.unit || ""}`;
+  return /_ja_|和訳/i.test(source);
+}
+
+function spokenWordForQuestion(question) {
+  if (!isJapaneseTranslationQuestion(question)) return "";
+  const text = String(question?.question || "");
+  const afterColon = text.split(/[:：]/).pop() || text;
+  const match = afterColon.match(/[A-Za-z][A-Za-z' -]*/);
+  return match ? match[0].trim() : "";
+}
+
 function matchesTag(question, selectedTag) {
   return !selectedTag || question.tags?.includes(selectedTag);
 }
@@ -358,6 +372,21 @@ function normalizeHistory(value) {
   };
 }
 
+function historyFromChanges(changes) {
+  const history = { questions: {}, daily: {} };
+
+  changes.forEach((change) => {
+    if (change.questionId && change.questionHistory) {
+      history.questions[change.questionId] = change.questionHistory;
+    }
+    if (change.daily && change.daily.date) {
+      history.daily[change.daily.date] = change.daily.stats || {};
+    }
+  });
+
+  return history;
+}
+
 async function loadSpreadsheetHistory(userName) {
   if (!HISTORY_BACKUP_URL || !userName) return { questions: {}, daily: {} };
 
@@ -366,13 +395,17 @@ async function loadSpreadsheetHistory(userName) {
     url.searchParams.set("userName", userName);
     url.searchParams.set("t", String(Date.now()));
 
+    console.log("[history] fetching:", url.toString());
     const res = await fetch(url.toString(), { mode: "cors", credentials: "omit" });
+    console.log("[history] status:", res.status, res.ok);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const payload = await res.json();
+    console.log("[history] payload:", JSON.stringify(payload).slice(0, 500));
     const scriptHistory = normalizeHistory(payload.history);
+    console.log("[history] hasHistory:", hasHistory(scriptHistory));
     if (payload.ok !== false && hasHistory(scriptHistory)) return scriptHistory;
-  } catch {
-    // Try the published sheet directly below.
+  } catch (err) {
+    console.error("[history] fetch failed:", err);
   }
 
   const gvizHistory = await loadBatchGvizHistory(userName);
@@ -452,15 +485,20 @@ function parseBatchHistoryRows(rows, userName) {
 
     found = true;
     if (payload.questions || payload.daily) {
-      history.questions = payload.questions && typeof payload.questions === "object" ? payload.questions : {};
-      history.daily = payload.daily && typeof payload.daily === "object" ? payload.daily : {};
+      Object.assign(history.questions, payload.questions && typeof payload.questions === "object" ? payload.questions : {});
+      Object.assign(history.daily, payload.daily && typeof payload.daily === "object" ? payload.daily : {});
       return;
     }
 
     if (payload.history) {
       const normalized = normalizeHistory(payload.history);
-      history.questions = normalized.questions;
-      history.daily = normalized.daily;
+      if (payload.type === "history_replace" || payload.type === "history_snapshot") {
+        history.questions = normalized.questions;
+        history.daily = normalized.daily;
+      } else {
+        Object.assign(history.questions, normalized.questions);
+        Object.assign(history.daily, normalized.daily);
+      }
       return;
     }
 
@@ -586,7 +624,7 @@ function saveHistory(userName, history, change = null, forceFlush = false) {
   if (!userName) return;
   localStorage.setItem(getHistoryKey(userName), JSON.stringify(history));
   if (change) enqueueHistoryBackup(userName, change);
-  if (forceFlush) backupHistory(userName, history, true, true);
+  if (forceFlush) backupHistory(userName, history, true, false);
 }
 
 function getDeviceId() {
@@ -714,6 +752,7 @@ function markHistoryBackupFailed(userName, error) {
 function backupHistory(userName, history, force = false, snapshot = false) {
   if (!shouldBackupHistory(userName, force)) return;
   const changes = getQueuedBackups(userName);
+  const deltaHistory = historyFromChanges(changes);
   const fullSnapshot = snapshot
     ? {
         questions: Object.entries(history.questions || {}).map(([questionId, questionHistory]) => ({
@@ -730,7 +769,7 @@ function backupHistory(userName, history, force = false, snapshot = false) {
     userName,
     deviceId: getDeviceId(),
     savedAt: new Date().toISOString(),
-    history: normalizeHistory(history),
+    history: snapshot ? normalizeHistory(history) : deltaHistory,
     changes,
     fullSnapshot,
   };
@@ -1057,6 +1096,12 @@ function countStats(list, history) {
   return { total: list.length, studied: studied.length, weak: weak.length, slow: slow.length, due: due.length, rate };
 }
 
+function questionListLabel(question) {
+  const spokenWord = spokenWordForQuestion(question);
+  if (spokenWord) return spokenWord;
+  return cleanLearningText(question.question).replace(/^次の意味に最も近い英単語を選びなさい[:：]\s*/, "");
+}
+
 export default function App() {
   const [questions, setQuestions] = useState([]);
   const [error, setError] = useState("");
@@ -1081,11 +1126,32 @@ export default function App() {
   const [choiceShownAt, setChoiceShownAt] = useState(Date.now());
   const [answerMeta, setAnswerMeta] = useState(null);
   const [historyCheckpoints, setHistoryCheckpoints] = useState({});
+  const [speechMuted, setSpeechMuted] = useState(() => localStorage.getItem(SPEECH_MUTED_KEY) === "true");
+  const [questionListVisible, setQuestionListVisible] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(false);
   const [result, setResult] = useState({ total: 0, correct: 0, wrong: 0 });
   const [sessionStreak, setSessionStreak] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const answerInputRef = useRef(null);
+
+  function speakWord(word, force = false) {
+    if (!word || (speechMuted && !force) || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = "en-US";
+    utterance.rate = 0.88;
+    utterance.pitch = 1;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function toggleSpeechMuted() {
+    setSpeechMuted((current) => {
+      const next = !current;
+      localStorage.setItem(SPEECH_MUTED_KEY, String(next));
+      if (next && "speechSynthesis" in window) window.speechSynthesis.cancel();
+      return next;
+    });
+  }
 
   useEffect(() => {
     fetch(SHEET_CSV_URL)
@@ -1162,6 +1228,18 @@ export default function App() {
       focusDirectAnswerInput();
     }
   }, [screen, showChoices, answerFormat, currentIndex]);
+
+  useEffect(() => {
+    if (screen !== "study" || !currentQuestion) return;
+    const word = spokenWordForQuestion(currentQuestion);
+    if (!word) return;
+
+    const timer = setTimeout(() => speakWord(word), 160);
+    return () => {
+      clearTimeout(timer);
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    };
+  }, [screen, currentQuestion?.id, speechMuted]);
 
   useEffect(() => {
     if (
@@ -1294,6 +1372,7 @@ export default function App() {
     setMiddleCategory("");
     setSelectedDifficulty("");
     setAnswerFormat(ANSWER_FORMATS.CHOICE);
+    setQuestionListVisible(false);
     setScreen("filters");
   }
 
@@ -1493,7 +1572,7 @@ export default function App() {
     if (!confirm(`${userName} の学習履歴を削除しますか？`)) return;
     localStorage.removeItem(getHistoryKey(userName));
     setHistory({ questions: {}, daily: {} });
-    backupHistory(userName, { questions: {}, daily: {} }, true, true);
+    replaceSpreadsheetHistory(userName, { questions: {}, daily: {} });
     alert("学習履歴をリセットしました");
   }
 
@@ -1519,6 +1598,7 @@ export default function App() {
   }
 
   const currentQuestion = sessionQuestions[currentIndex];
+  const currentSpokenWord = spokenWordForQuestion(currentQuestion);
   const answered = selectedIndex !== null;
   const isCurrentAnswerCorrect = answered && currentQuestion && selectedIndex === currentQuestion.answerIndex;
   const previewStreak = isCurrentAnswerCorrect ? sessionStreak + 1 : 0;
@@ -1655,7 +1735,7 @@ export default function App() {
               <button key={u} className="unitCard" onClick={() => selectUnit(u)}>
                 <div>
                   <strong>{u}</strong>
-                  <small>{stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%</small>
+                  <small>{stat.total}問 / 実施済み {stat.studied}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%</small>
                   <div className="thinBar"><div style={{ width: `${Math.min(100, stat.rate)}%` }} /></div>
                 </div>
                 <span>›</span>
@@ -1765,33 +1845,76 @@ export default function App() {
                 matchesCategory(q, largeCategory, middleCategory)
             );
             const stat = countStats(selectedQuestions, history);
+            const listedQuestions = filterByMode(selectedQuestions, history, mode);
             const directInputAvailable = selectedQuestions.length > 0 && selectedQuestions.every(supportsDirectInput);
             return (
-              <section className="panel">
-                <h2 className="panelTitle">出題条件</h2>
-                <p className="description">
-                  {stat.total}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%
-                </p>
-                {directInputAvailable && (
-                  <div className="answerFormatTabs" aria-label="回答形式">
-                    <button
-                      className={answerFormat === ANSWER_FORMATS.CHOICE ? "active" : ""}
-                      onClick={() => setAnswerFormat(ANSWER_FORMATS.CHOICE)}
-                    >
-                      4択
-                    </button>
-                    <button
-                      className={answerFormat === ANSWER_FORMATS.INPUT ? "active" : ""}
-                      onClick={() => setAnswerFormat(ANSWER_FORMATS.INPUT)}
-                    >
-                      直接入力
-                    </button>
-                  </div>
+              <>
+                <section className="panel">
+                  <h2 className="panelTitle">出題条件</h2>
+                  <p className="description">
+                    {stat.total}問 / 実施済み {stat.studied}問 / 復習 {stat.due}問 / 苦手 {stat.weak}問 / 遅答 {stat.slow}問 / 正答率 {stat.rate}%
+                  </p>
+                  {directInputAvailable && (
+                    <div className="answerFormatTabs" aria-label="回答形式">
+                      <button
+                        className={answerFormat === ANSWER_FORMATS.CHOICE ? "active" : ""}
+                        onClick={() => setAnswerFormat(ANSWER_FORMATS.CHOICE)}
+                      >
+                        4択
+                      </button>
+                      <button
+                        className={answerFormat === ANSWER_FORMATS.INPUT ? "active" : ""}
+                        onClick={() => setAnswerFormat(ANSWER_FORMATS.INPUT)}
+                      >
+                        直接入力
+                      </button>
+                    </div>
+                  )}
+                  <button className="bigPrimary" onClick={() => startStudy()} disabled={stat.total === 0}>
+                    25問で開始
+                  </button>
+                  <button
+                    className="bigSecondary"
+                    onClick={() => setQuestionListVisible((visible) => !visible)}
+                    disabled={stat.total === 0}
+                  >
+                    {questionListVisible ? "リストを閉じる" : "リストで表示"}
+                  </button>
+                </section>
+                {questionListVisible && (
+                  <section className="panel questionListPanel">
+                    <h2 className="panelTitle">リストで表示</h2>
+                    <p className="description">{listedQuestions.length}問</p>
+                    <div className="questionPreviewList">
+                      {listedQuestions.map((q, index) => {
+                        const h = getQuestionHistory(history, q.id);
+                        const weak = isWeakQuestion(q, history);
+                        const slow = isSlowQuestion(q, history);
+                        const cls = `questionPreviewItem${weak ? " isWeak" : ""}${slow ? " isSlow" : ""}`;
+                        return (
+                          <div key={q.id} className={cls}>
+                            <span>{index + 1}</span>
+                            <div>
+                              <div className="questionPreviewHeader">
+                                <strong>{questionListLabel(q)}</strong>
+                                <div className="questionStateBadges">
+                                  {weak && <em className="weakBadge">苦手</em>}
+                                  {slow && <em className="slowBadge">遅答</em>}
+                                </div>
+                              </div>
+                              <small>
+                                {q.largeCategory || "分類なし"}
+                                {q.middleCategory ? ` / ${q.middleCategory}` : ""}
+                                {h ? ` / 実施済み ${h.answeredCount || 0}回 / ○${h.correct || 0} ×${h.wrong || 0}` : " / 未実施"}
+                              </small>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
                 )}
-                <button className="bigPrimary" onClick={() => startStudy()} disabled={stat.total === 0}>
-                  25問で開始
-                </button>
-              </section>
+              </>
             );
           })()}
         </>
@@ -1840,6 +1963,16 @@ export default function App() {
                       ? "遅答問題"
                       : "未学習"}
             </p>
+            {currentSpokenWord && (
+              <div className="speechControls" aria-label="音声">
+                <button type="button" onClick={toggleSpeechMuted}>
+                  {speechMuted ? "音声オフ" : "音声オン"}
+                </button>
+                <button type="button" onClick={() => speakWord(currentSpokenWord, true)}>
+                  再再生
+                </button>
+              </div>
+            )}
             <h2 className={questionSizeClass(currentQuestion.question)}>{currentQuestion.question}</h2>
             {currentQuestion.tags?.length > 0 && (
               <div className="questionTags">

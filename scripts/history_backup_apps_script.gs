@@ -51,7 +51,10 @@ function doPost(e) {
         .createTextOutput(JSON.stringify({ ok: true, skipped: true, reason: "empty payload" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    const historyJson = JSON.stringify(history);
+    const historyJson = JSON.stringify({
+      type: payload.type || "history_delta",
+      history,
+    });
 
     appendRows_(getSheet_(spreadsheet, BATCH_SHEET_NAME, batchHeaders_()), [[
       receivedAt,
@@ -291,15 +294,20 @@ function buildBatchHistoryForUser_(spreadsheet, userName) {
 
     if (payload.questions || payload.daily) {
       const normalized = normalizeHistory_(payload);
-      history.questions = normalized.questions;
-      history.daily = normalized.daily;
+      Object.assign(history.questions, normalized.questions);
+      Object.assign(history.daily, normalized.daily);
       return;
     }
 
     if (payload.history) {
       const normalized = normalizeHistory_(payload.history);
-      history.questions = normalized.questions;
-      history.daily = normalized.daily;
+      if (payload.type === "history_replace" || payload.type === "history_snapshot") {
+        history.questions = normalized.questions;
+        history.daily = normalized.daily;
+      } else {
+        Object.assign(history.questions, normalized.questions);
+        Object.assign(history.daily, normalized.daily);
+      }
       return;
     }
 
