@@ -26,6 +26,7 @@ const SESSION_SIZE = 25;
 const HISTORY_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const HISTORY_BACKUP_EVERY_ANSWERS = 5;
 const DEFAULT_USERS = ["IT", "TM", "YK", "HR", "IC", "OT"];
+const SHOW_ADVANCED_FILTERS = false;
 const ANSWER_FORMATS = {
   CHOICE: "choice",
   INPUT: "input",
@@ -291,6 +292,15 @@ function spokenWordForQuestion(question) {
   const afterColon = text.split(/[:：]/).pop() || text;
   const match = afterColon.match(/[A-Za-z][A-Za-z' -]*/);
   return match ? match[0].trim() : "";
+}
+
+function pickEnglishVoice(voices) {
+  return (
+    voices.find((voice) => /^en-US/i.test(voice.lang || "")) ||
+    voices.find((voice) => /^en-/i.test(voice.lang || "")) ||
+    voices.find((voice) => /english/i.test(voice.name || "")) ||
+    null
+  );
 }
 
 function matchesTag(question, selectedTag) {
@@ -1072,6 +1082,20 @@ function isSlowQuestion(q, history) {
   return h.lastSlow === true || (h.slowCount || 0) >= 2 || avgResponseMs >= SLOW_ANSWER_MS;
 }
 
+function compareQuestionId(a, b) {
+  const aMatch = String(a.id || "").match(/^(.*?)(\d+)$/);
+  const bMatch = String(b.id || "").match(/^(.*?)(\d+)$/);
+  if (aMatch && bMatch && aMatch[1] === bMatch[1]) {
+    return Number(aMatch[2]) - Number(bMatch[2]);
+  }
+  return String(a.id || "").localeCompare(String(b.id || ""), "ja", { numeric: true });
+}
+
+function questionListNumber(q, index) {
+  const match = String(q.id || "").match(/_(\d+)$/);
+  return match ? match[1] : String(index + 1);
+}
+
 function scoreQuestion(q, history) {
   const h = getQuestionHistory(history, q.id);
   if (!h) return 95 + (q.difficulty || 0) * 3;
@@ -1097,12 +1121,58 @@ function scoreQuestion(q, history) {
   return score;
 }
 
+function randomQuestionWeight(q, history) {
+  const h = getQuestionHistory(history, q.id);
+  if (!h || !h.answeredCount) return 1.45 + (q.difficulty || 0) * 0.08;
+
+  const answered = Math.max(1, h.answeredCount || 0);
+  const correctRate = Math.min(1, Math.max(0, (h.correct || 0) / answered));
+  const avgResponseMs = h.responseTimeTotalMs ? h.responseTimeTotalMs / answered : 0;
+
+  let weight = 1.25;
+  weight *= 1.6 - correctRate * 0.85;
+  weight += Math.min(2.8, (h.weakWeight || 0) / 42);
+  weight += Math.min(1.2, (h.wrong || 0) * 0.22);
+  weight += Math.min(1.1, (h.slowCount || 0) * 0.28);
+  weight += Math.max(0, 3 - (h.streak || 0)) * 0.22;
+  if (isWeakQuestion(q, history)) weight *= 2.2;
+  if (isSlowQuestion(q, history) || avgResponseMs >= SLOW_ANSWER_MS) weight *= 1.7;
+  if (h.mastered && correctRate >= 0.85) weight *= 0.32;
+  if (h.lastResult === "correct" && correctRate >= 0.9) weight *= 0.55;
+
+  return Math.max(0.08, weight);
+}
+
+function weightedRandomQuestions(questions, history) {
+  const pool = questions.map((question) => ({
+    question,
+    weight: randomQuestionWeight(question, history),
+  }));
+  const selected = [];
+
+  while (pool.length > 0) {
+    const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
+    let pick = Math.random() * totalWeight;
+    const index = pool.findIndex((item) => {
+      pick -= item.weight;
+      return pick <= 0;
+    });
+    const selectedIndex = index >= 0 ? index : pool.length - 1;
+    selected.push(pool[selectedIndex].question);
+    pool.splice(selectedIndex, 1);
+  }
+
+  return selected;
+}
+
 function filterByMode(questions, history, mode) {
   if (mode === "weak") {
     return questions
       .filter((q) => isWeakQuestion(q, history))
       .sort((a, b) => scoreQuestion(b, history) - scoreQuestion(a, history));
   }
+
+  if (mode === "random") return weightedRandomQuestions(questions, history);
 
   if (mode === "new") return questions.filter((q) => !getQuestionHistory(history, q.id));
 
@@ -1180,6 +1250,7 @@ export default function App() {
   const [answerMeta, setAnswerMeta] = useState(null);
   const [historyCheckpoints, setHistoryCheckpoints] = useState({});
   const [speechMuted, setSpeechMuted] = useState(() => localStorage.getItem(SPEECH_MUTED_KEY) === "true");
+  const [speechVoices, setSpeechVoices] = useState([]);
   const [questionListVisible, setQuestionListVisible] = useState(false);
   const [revealedListAnswers, setRevealedListAnswers] = useState({});
   const [headerVisible, setHeaderVisible] = useState(false);
@@ -1187,6 +1258,7 @@ export default function App() {
   const [sessionStreak, setSessionStreak] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const answerInputRef = useRef(null);
+  const weakToggleGestureRef = useRef({ skipClick: false });
   const currentQuestion = sessionQuestions[currentIndex];
 
   function speakWord(word, force = false) {
@@ -1194,6 +1266,7 @@ export default function App() {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(word);
     utterance.lang = "en-US";
+    utterance.voice = pickEnglishVoice(speechVoices.length ? speechVoices : window.speechSynthesis.getVoices());
     utterance.rate = 0.88;
     utterance.pitch = 1;
     window.speechSynthesis.speak(utterance);
@@ -1207,6 +1280,20 @@ export default function App() {
       return next;
     });
   }
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const updateVoices = () => setSpeechVoices(window.speechSynthesis.getVoices());
+    updateVoices();
+    window.speechSynthesis.addEventListener?.("voiceschanged", updateVoices);
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+    return () => {
+      window.speechSynthesis.removeEventListener?.("voiceschanged", updateVoices);
+      if (window.speechSynthesis.onvoiceschanged === updateVoices) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     fetch(SHEET_CSV_URL)
@@ -1656,6 +1743,45 @@ export default function App() {
     }
   }
 
+  function startWeakToggleGesture(event, questionId) {
+    event.stopPropagation();
+    weakToggleGestureRef.current = {
+      questionId,
+      pointerType: event.pointerType,
+      startX: event.clientX,
+      startY: event.clientY,
+      skipClick: false,
+    };
+  }
+
+  function finishWeakToggleGesture(event, questionId) {
+    event.stopPropagation();
+    const gesture = weakToggleGestureRef.current;
+    if (!gesture || gesture.questionId !== questionId) return;
+
+    const dx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+    const horizontalSlide = Math.abs(dx) >= 22 && Math.abs(dx) > Math.abs(dy);
+
+    if (gesture.pointerType === "touch") {
+      weakToggleGestureRef.current = { skipClick: true };
+      if (horizontalSlide) updateManualWeak(questionId, dx > 0);
+      return;
+    }
+
+    weakToggleGestureRef.current = { skipClick: horizontalSlide };
+    if (horizontalSlide) updateManualWeak(questionId, dx > 0);
+  }
+
+  function clickWeakToggle(event, questionId, currentWeak) {
+    event.stopPropagation();
+    if (weakToggleGestureRef.current?.skipClick) {
+      weakToggleGestureRef.current = { skipClick: false };
+      return;
+    }
+    updateManualWeak(questionId, !currentWeak);
+  }
+
   function changeMonth(diff) {
     const next = new Date(calendarDate);
     next.setMonth(next.getMonth() + diff);
@@ -1687,7 +1813,7 @@ export default function App() {
   if (screen !== "login" && questions.length === 0) {
     return (
       <div className="app">
-        <div className="brandHeader"><div className="logo">M</div><h1>受験カード</h1></div>
+        <div className="brandHeader"><div className="logo">M</div><h1>学習アプリ</h1></div>
         <div className="panel loading">問題データを読み込み中...</div>
       </div>
     );
@@ -1696,7 +1822,7 @@ export default function App() {
   if (screen !== "login" && historyLoading) {
     return (
       <div className="app">
-        <div className="brandHeader"><div className="logo">M</div><h1>受験カード</h1></div>
+        <div className="brandHeader"><div className="logo">M</div><h1>学習アプリ</h1></div>
         <div className="panel loading">Googleスプレッドシートの学習履歴を読み込み中...</div>
       </div>
     );
@@ -1709,7 +1835,7 @@ export default function App() {
         <div className="brandCenter">
           <div className="logo">M</div>
           <div>
-            <h1>受験カード</h1>
+            <h1>学習アプリ</h1>
             {userName && <p>{userName}</p>}
           </div>
         </div>
@@ -1776,7 +1902,7 @@ export default function App() {
             <button onClick={() => setScreen("home")}>‹</button>
             <h2>{subject}</h2>
           </div>
-          {subjectTags.length > 0 && (
+          {SHOW_ADVANCED_FILTERS && subjectTags.length > 0 && (
             <>
               <h3 className="sectionTitle">TAGを選択</h3>
               <div className="tagFilter">
@@ -1818,13 +1944,14 @@ export default function App() {
 
           <div className="modeTabs">
             <button className={mode === "normal" ? "active" : ""} onClick={() => setMode("normal")}>おすすめ</button>
+            <button className={mode === "random" ? "active" : ""} onClick={() => setMode("random")}>ランダム</button>
             <button className={mode === "review" ? "active" : ""} onClick={() => setMode("review")}>復習</button>
             <button className={mode === "weak" ? "active" : ""} onClick={() => setMode("weak")}>苦手</button>
             <button className={mode === "slow" ? "active" : ""} onClick={() => setMode("slow")}>遅答</button>
             <button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>未学習</button>
           </div>
 
-          {subjectTags.length > 0 && (
+          {SHOW_ADVANCED_FILTERS && subjectTags.length > 0 && (
             <>
               <h3 className="sectionTitle">TAG</h3>
               <div className="tagFilter compact">
@@ -1838,7 +1965,7 @@ export default function App() {
             </>
           )}
 
-          {difficultyLevels.length > 0 && (
+          {SHOW_ADVANCED_FILTERS && difficultyLevels.length > 0 && (
             <>
               <h3 className="sectionTitle">難易度</h3>
               <div className="tagFilter compact">
@@ -1909,7 +2036,7 @@ export default function App() {
                 matchesCategory(q, largeCategory, middleCategory)
             );
             const stat = countStats(selectedQuestions, history);
-            const listedQuestions = filterByMode(selectedQuestions, history, mode);
+            const listedQuestions = [...filterByMode(selectedQuestions, history, mode)].sort(compareQuestionId);
             const directInputAvailable = selectedQuestions.length > 0 && selectedQuestions.every(supportsDirectInput);
             return (
               <>
@@ -1976,46 +2103,40 @@ export default function App() {
                               }
                             }}
                           >
-                            <span>{index + 1}</span>
+                            <span>{questionListNumber(q, index)}</span>
                             <div>
                               <div className="questionPreviewHeader">
                                 <strong>{questionListLabel(q)}</strong>
-                                <div className="questionStateBadges">
+                                <div className="questionMetaRow">
+                                  <div className="questionStateBadges">
                                   {weak && <em className="weakBadge">苦手</em>}
                                   {slow && <em className="slowBadge">遅答</em>}
-                                </div>
+                                  </div>
+                            </div>
                               </div>
                               <small>
                                 {q.largeCategory || "分類なし"}
                                 {q.middleCategory ? ` / ${q.middleCategory}` : ""}
                                 {h ? ` / 実施済み ${h.answeredCount || 0}回 / ○${h.correct || 0} ×${h.wrong || 0}` : " / 未実施"}
                               </small>
-                              <div className="questionPreviewActions">
-                                <button
-                                  type="button"
-                                  className="weakAction"
-                                  disabled={h?.manualWeak === true}
-                                  onKeyDown={(event) => event.stopPropagation()}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    updateManualWeak(q.id, true);
-                                  }}
-                                >
-                                  苦手に設定
-                                </button>
-                                <button
-                                  type="button"
-                                  className="clearWeakAction"
-                                  disabled={!weak}
-                                  onKeyDown={(event) => event.stopPropagation()}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    updateManualWeak(q.id, false);
-                                  }}
-                                >
-                                  苦手クリア
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                className={`weakToggle${weak ? " isOn" : ""}`}
+                                aria-pressed={weak}
+                                onPointerDown={(event) => startWeakToggleGesture(event, q.id)}
+                                onPointerUp={(event) => finishWeakToggleGesture(event, q.id)}
+                                onPointerCancel={(event) => {
+                                  event.stopPropagation();
+                                  weakToggleGestureRef.current = { skipClick: false };
+                                }}
+                                onKeyDown={(event) => event.stopPropagation()}
+                                onClick={(event) => clickWeakToggle(event, q.id, weak)}
+                              >
+                                <span className="weakToggleTrack" aria-hidden="true">
+                                  <span className="weakToggleThumb" />
+                                </span>
+                                <span>{weak ? "苦手" : "通常"}</span>
+                              </button>
                             </div>
                             <aside className={revealed ? "isVisible" : ""}>{answerText}</aside>
                           </div>
@@ -2067,11 +2188,13 @@ export default function App() {
                 ? "復習タイミング"
                 : mode === "normal"
                   ? "おすすめ"
-                  : mode === "weak"
-                    ? "苦手問題"
-                    : mode === "slow"
-                      ? "遅答問題"
-                      : "未学習"}
+                  : mode === "random"
+                    ? "ランダム"
+                    : mode === "weak"
+                      ? "苦手問題"
+                      : mode === "slow"
+                        ? "遅答問題"
+                        : "未学習"}
             </p>
             {currentSpokenWord && (
               <div className="speechControls" aria-label="音声">
@@ -2079,7 +2202,7 @@ export default function App() {
                   {speechMuted ? "音声オフ" : "音声オン"}
                 </button>
                 <button type="button" onClick={() => speakWord(currentSpokenWord, true)}>
-                  再再生
+                  再生
                 </button>
               </div>
             )}

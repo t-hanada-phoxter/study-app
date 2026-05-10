@@ -1,0 +1,18 @@
+{
+  "name": "学習アプリ",
+  "short_name": "学習アプリ",
+  "description": "英単語などを学習するためのアプリ",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff7ed",
+  "theme_color": "#f97316",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

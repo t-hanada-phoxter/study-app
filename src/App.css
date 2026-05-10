@@ -451,11 +451,12 @@ button { cursor: pointer; }
 }
 
 .questionPreviewItem > span {
-  width: 28px;
+  min-width: 28px;
+  padding: 0 5px;
   height: 28px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 999px;
   color: #c2410c;
   background: #ffedd5;
   font-size: 12px;
@@ -472,13 +473,21 @@ button { cursor: pointer; }
 
 .questionPreviewHeader {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+}
+
+.questionMetaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .questionStateBadges {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  min-width: 0;
 }
 
 .questionStateBadges em {
@@ -511,38 +520,56 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 
-.questionPreviewActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.questionPreviewActions button {
-  border: 1px solid transparent;
+.weakToggle {
+  min-width: 92px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #fed7aa;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 5px 8px 5px 6px;
+  color: #9a3412;
+  background: #fff7ed;
   font-size: 12px;
   line-height: 1;
   font-weight: 1000;
-  cursor: pointer;
+  touch-action: pan-y;
 }
 
-.questionPreviewActions button:disabled {
-  cursor: default;
-  opacity: .45;
-}
-
-.weakAction {
+.weakToggle.isOn {
   color: #be123c;
-  background: #ffe4e6;
+  background: #fff1f2;
   border-color: #fecdd3;
 }
 
-.clearWeakAction {
-  color: #9a3412;
-  background: #ffedd5;
-  border-color: #fed7aa;
+.weakToggleTrack {
+  width: 34px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background: #fdba74;
+  transition: background .18s ease;
+}
+
+.weakToggle.isOn .weakToggleTrack {
+  background: #fb7185;
+}
+
+.weakToggleThumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(124, 45, 18, .22);
+  transform: translateX(0);
+  transition: transform .18s ease;
+}
+
+.weakToggle.isOn .weakToggleThumb {
+  transform: translateX(16px);
 }
 
 .questionPreviewItem aside {
