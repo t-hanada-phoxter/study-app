@@ -383,6 +383,25 @@ function normalizeHistory(value) {
   };
 }
 
+function mergeHistories(...histories) {
+  return histories.reduce(
+    (merged, item) => {
+      const history = normalizeHistory(item);
+      return {
+        questions: {
+          ...merged.questions,
+          ...history.questions,
+        },
+        daily: {
+          ...merged.daily,
+          ...history.daily,
+        },
+      };
+    },
+    { questions: {}, daily: {} }
+  );
+}
+
 function historyFromChanges(changes) {
   const history = { questions: {}, daily: {} };
 
@@ -400,6 +419,7 @@ function historyFromChanges(changes) {
 
 async function loadSpreadsheetHistory(userName) {
   if (!HISTORY_BACKUP_URL || !userName) return { questions: {}, daily: {} };
+  const candidates = [];
 
   try {
     const url = new URL(HISTORY_BACKUP_URL);
@@ -414,16 +434,18 @@ async function loadSpreadsheetHistory(userName) {
     console.log("[history] payload:", JSON.stringify(payload).slice(0, 500));
     const scriptHistory = normalizeHistory(payload.history);
     console.log("[history] hasHistory:", hasHistory(scriptHistory));
-    if (payload.ok !== false && hasHistory(scriptHistory)) return scriptHistory;
+    if (payload.ok !== false && hasHistory(scriptHistory)) candidates.push(scriptHistory);
   } catch (err) {
     console.error("[history] fetch failed:", err);
   }
 
   const gvizHistory = await loadBatchGvizHistory(userName);
-  if (gvizHistory) return gvizHistory;
+  if (hasHistory(gvizHistory)) candidates.push(gvizHistory);
 
   const batchHistory = await loadBatchCsvHistory(userName);
-  if (batchHistory) return batchHistory;
+  if (hasHistory(batchHistory)) candidates.push(batchHistory);
+
+  if (candidates.length) return mergeHistories(...candidates);
 
   return null;
 }
