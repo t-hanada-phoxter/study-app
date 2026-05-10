@@ -2,7 +2,7 @@
   "name": "学習アプリ",
   "short_name": "学習アプリ",
   "description": "英単語などを学習するためのアプリ",
-  "start_url": "/study-app/",
+  "start_url": "/study-app/?v=20260510-history-jsonp",
   "scope": "/study-app/",
   "display": "standalone",
   "background_color": "#fff7ed",

@@ -426,17 +426,23 @@ async function loadSpreadsheetHistory(userName) {
     url.searchParams.set("userName", userName);
     url.searchParams.set("t", String(Date.now()));
 
-    console.log("[history] fetching:", url.toString());
-    const res = await fetch(url.toString(), { mode: "cors", credentials: "omit" });
-    console.log("[history] status:", res.status, res.ok);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const payload = await res.json();
-    console.log("[history] payload:", JSON.stringify(payload).slice(0, 500));
+    const payload = await fetchJsonp(url);
     const scriptHistory = normalizeHistory(payload.history);
-    console.log("[history] hasHistory:", hasHistory(scriptHistory));
     if (payload.ok !== false && hasHistory(scriptHistory)) candidates.push(scriptHistory);
   } catch (err) {
-    console.error("[history] fetch failed:", err);
+    console.error("[history] Apps Script JSONP failed:", err);
+    try {
+      const url = new URL(HISTORY_BACKUP_URL);
+      url.searchParams.set("userName", userName);
+      url.searchParams.set("t", String(Date.now()));
+      const res = await fetch(url.toString(), { mode: "cors", credentials: "omit", cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const scriptHistory = normalizeHistory(payload.history);
+      if (payload.ok !== false && hasHistory(scriptHistory)) candidates.push(scriptHistory);
+    } catch (fallbackErr) {
+      console.error("[history] Apps Script fetch failed:", fallbackErr);
+    }
   }
 
   const gvizHistory = await loadBatchGvizHistory(userName);
