@@ -864,10 +864,14 @@ function updateDailyStats(history, isCorrect, meta) {
 
 function computeNextSchedule(item, isCorrect, meta) {
   const now = new Date();
+  const today = todayKey(now);
+  const nowTime = now.getTime();
   const wrong = item.wrong || 0;
   const streak = item.streak || 0;
   const ease = item.ease ?? 2.2;
   const shakyCorrect = isCorrect && (meta.hesitated || meta.responseTimeMs > 10000);
+  const lastWeakReducedAt = Date.parse(item.weakReducedAt || "");
+  const canReduceWeakWeight = !lastWeakReducedAt || nowTime - lastWeakReducedAt >= 10 * 60 * 60 * 1000;
 
   if (!isCorrect) {
     return {
@@ -875,8 +879,9 @@ function computeNextSchedule(item, isCorrect, meta) {
       reviewLevel: 0,
       intervalDays: 0,
       weakWeight: Math.min(240, (item.weakWeight || 0) + 55),
-      nextReviewAt: todayKey(now),
+      nextReviewAt: today,
       mastered: false,
+      weakReducedAt: item.weakReducedAt || "",
     };
   }
 
@@ -889,10 +894,12 @@ function computeNextSchedule(item, isCorrect, meta) {
   interval = Math.max(1, Math.round(interval * (1 - difficultPenalty)));
 
   const weakFloor = wrong >= 2 || shakyCorrect ? 25 : 0;
-  const newWeakWeight = Math.max(
-    weakFloor,
-    Math.round((item.weakWeight || 0) * (shakyCorrect ? 0.92 : wrong >= 2 ? 0.86 : 0.62))
-  );
+  const newWeakWeight = canReduceWeakWeight
+    ? Math.max(
+        weakFloor,
+        Math.round((item.weakWeight || 0) * (shakyCorrect ? 0.92 : wrong >= 2 ? 0.86 : 0.62))
+      )
+    : item.weakWeight || 0;
 
   return {
     ease: newEase,
@@ -901,6 +908,7 @@ function computeNextSchedule(item, isCorrect, meta) {
     weakWeight: newWeakWeight,
     nextReviewAt: todayKey(addDays(now, interval)),
     mastered: streak + 1 >= 3 && wrong <= 1 && !shakyCorrect,
+    weakReducedAt: canReduceWeakWeight ? now.toISOString() : item.weakReducedAt || "",
   };
 }
 
@@ -926,6 +934,7 @@ function updateHistory(userName, baseHistory, questionId, isCorrect, meta) {
     lastSlow: false,
     hesitatedCount: 0,
     responseTimeTotalMs: 0,
+    weakReducedAt: "",
   };
 
   const updated = { ...current };
@@ -1005,11 +1014,55 @@ function isWeakQuestion(q, history) {
   if (!h) return false;
 
   return (
+    h.manualWeak === true ||
     h.lastResult === "wrong" ||
     (h.weakWeight || 0) >= 25 ||
     (h.hesitatedCount || 0) >= 2 ||
     ((h.wrong || 0) >= 1 && (h.streak || 0) < 3)
   );
+}
+
+function setManualWeakHistory(baseHistory, questionId, enabled) {
+  const history = normalizeHistory(baseHistory);
+  const current = history.questions?.[questionId] || {
+    correct: 0,
+    wrong: 0,
+    lastResult: null,
+    streak: 0,
+    bestStreak: 0,
+    mastered: false,
+    reviewLevel: 0,
+    intervalDays: 0,
+    ease: 2.2,
+    weakWeight: 0,
+    nextReviewAt: todayKey(),
+    firstAnsweredAt: null,
+    lastAnsweredAt: null,
+    answeredCount: 0,
+    quickCount: 0,
+    slowCount: 0,
+    lastSlow: false,
+    hesitatedCount: 0,
+    responseTimeTotalMs: 0,
+    weakReducedAt: "",
+  };
+  const updated = {
+    ...current,
+    manualWeak: enabled,
+    manualWeakClearedAt: enabled ? "" : new Date().toISOString(),
+    weakWeight: enabled ? Math.max(current.weakWeight || 0, 55) : 0,
+    lastResult: enabled ? current.lastResult || "manual" : current.lastResult === "wrong" ? "correct" : current.lastResult,
+    streak: enabled ? current.streak || 0 : Math.max(current.streak || 0, 3),
+    hesitatedCount: enabled ? current.hesitatedCount || 0 : 0,
+  };
+
+  return {
+    ...history,
+    questions: {
+      ...(history.questions || {}),
+      [questionId]: updated,
+    },
+  };
 }
 
 function isSlowQuestion(q, history) {
@@ -1594,6 +1647,15 @@ export default function App() {
     alert("Googleスプレッドシートへバックアップを送信しました。");
   }
 
+  function updateManualWeak(questionId, enabled) {
+    const nextHistory = setManualWeakHistory(history, questionId, enabled);
+    setHistory(nextHistory);
+    if (userName) {
+      localStorage.setItem(getHistoryKey(userName), JSON.stringify(nextHistory));
+      replaceSpreadsheetHistory(userName, nextHistory);
+    }
+  }
+
   function changeMonth(diff) {
     const next = new Date(calendarDate);
     next.setMonth(next.getMonth() + diff);
@@ -1895,17 +1957,24 @@ export default function App() {
                         const cls = `questionPreviewItem${weak ? " isWeak" : ""}${slow ? " isSlow" : ""}`;
                         const revealed = Boolean(revealedListAnswers[q.id]);
                         const answerText = q.choices?.[q.answerIndex] || "";
+                        const toggleReveal = () =>
+                          setRevealedListAnswers((prev) => ({
+                            ...prev,
+                            [q.id]: !prev[q.id],
+                          }));
                         return (
-                          <button
+                          <div
                             key={q.id}
-                            type="button"
+                            role="button"
+                            tabIndex={0}
                             className={cls}
-                            onClick={() =>
-                              setRevealedListAnswers((prev) => ({
-                                ...prev,
-                                [q.id]: !prev[q.id],
-                              }))
-                            }
+                            onClick={toggleReveal}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                toggleReveal();
+                              }
+                            }}
                           >
                             <span>{index + 1}</span>
                             <div>
@@ -1921,9 +1990,35 @@ export default function App() {
                                 {q.middleCategory ? ` / ${q.middleCategory}` : ""}
                                 {h ? ` / 実施済み ${h.answeredCount || 0}回 / ○${h.correct || 0} ×${h.wrong || 0}` : " / 未実施"}
                               </small>
+                              <div className="questionPreviewActions">
+                                <button
+                                  type="button"
+                                  className="weakAction"
+                                  disabled={h?.manualWeak === true}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    updateManualWeak(q.id, true);
+                                  }}
+                                >
+                                  苦手に設定
+                                </button>
+                                <button
+                                  type="button"
+                                  className="clearWeakAction"
+                                  disabled={!weak}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    updateManualWeak(q.id, false);
+                                  }}
+                                >
+                                  苦手クリア
+                                </button>
+                              </div>
                             </div>
                             <aside className={revealed ? "isVisible" : ""}>{answerText}</aside>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
