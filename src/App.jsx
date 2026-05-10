@@ -1242,9 +1242,20 @@ function countStats(list, history) {
   const due = list.filter((q) => isReviewDue(q, history));
   const correct = studied.reduce((sum, q) => sum + (getQuestionHistory(history, q.id)?.correct || 0), 0);
   const wrong = studied.reduce((sum, q) => sum + (getQuestionHistory(history, q.id)?.wrong || 0), 0);
+  const correctQuestions = list.filter((q) => (getQuestionHistory(history, q.id)?.correct || 0) > 0).length;
+  const progressRate = list.length === 0 ? 0 : Math.round((correctQuestions / list.length) * 100);
   const rate = correct + wrong === 0 ? 0 : Math.round((correct / (correct + wrong)) * 100);
 
-  return { total: list.length, studied: studied.length, weak: weak.length, slow: slow.length, due: due.length, rate };
+  return {
+    total: list.length,
+    studied: studied.length,
+    weak: weak.length,
+    slow: slow.length,
+    due: due.length,
+    correctQuestions,
+    progressRate,
+    rate,
+  };
 }
 
 function questionListLabel(question) {
@@ -1564,6 +1575,20 @@ export default function App() {
     setLargeCategory(nextLargeCategory);
     setMiddleCategory("");
     saveLargeCategorySelection(userName, subject, unit, nextLargeCategory);
+  }
+
+  function getLargeCategoryStat(targetLargeCategory) {
+    return countStats(
+      questions.filter(
+        (q) =>
+          q.subject === subject &&
+          q.unit === unit &&
+          matchesTag(q, selectedTag) &&
+          matchesDifficulty(q, selectedDifficulty) &&
+          (!targetLargeCategory || q.largeCategory === targetLargeCategory)
+      ),
+      history
+    );
   }
 
   function focusDirectAnswerInput() {
@@ -2033,25 +2058,45 @@ export default function App() {
 
           <h3 className="sectionTitle">大分類</h3>
           <div className="tagFilter compact">
-            <button
-              className={largeCategory === "" ? "active" : ""}
-              onClick={() => {
-                selectLargeCategory("");
-              }}
-            >
-              すべて
-            </button>
-            {largeCategories.map((category) => (
-              <button
-                key={category}
-                className={largeCategory === category ? "active" : ""}
-                onClick={() => {
-                  selectLargeCategory(category);
-                }}
-              >
-                {category}
-              </button>
-            ))}
+            {(() => {
+              const allStat = getLargeCategoryStat("");
+              return (
+                <button
+                  className={`categoryProgressButton ${largeCategory === "" ? "active" : ""}`}
+                  onClick={() => {
+                    selectLargeCategory("");
+                  }}
+                >
+                  <span className="categoryName">すべて</span>
+                  <span className="categoryProgressText">
+                    {allStat.correctQuestions}/{allStat.total}
+                  </span>
+                  <span className="categoryProgressBar">
+                    <span style={{ width: `${Math.min(100, allStat.progressRate)}%` }} />
+                  </span>
+                </button>
+              );
+            })()}
+            {largeCategories.map((category) => {
+              const categoryStat = getLargeCategoryStat(category);
+              return (
+                <button
+                  key={category}
+                  className={`categoryProgressButton ${largeCategory === category ? "active" : ""}`}
+                  onClick={() => {
+                    selectLargeCategory(category);
+                  }}
+                >
+                  <span className="categoryName">{category}</span>
+                  <span className="categoryProgressText">
+                    {categoryStat.correctQuestions}/{categoryStat.total}
+                  </span>
+                  <span className="categoryProgressBar">
+                    <span style={{ width: `${Math.min(100, categoryStat.progressRate)}%` }} />
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {middleCategories.length > 0 && (
