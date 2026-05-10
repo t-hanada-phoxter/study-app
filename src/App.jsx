@@ -1133,6 +1133,7 @@ export default function App() {
   const [sessionStreak, setSessionStreak] = useState(0);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const answerInputRef = useRef(null);
+  const currentQuestion = sessionQuestions[currentIndex];
 
   function speakWord(word, force = false) {
     if (!word || (speechMuted && !force) || !("speechSynthesis" in window)) return;
@@ -1597,7 +1598,6 @@ export default function App() {
     setCalendarDate(next);
   }
 
-  const currentQuestion = sessionQuestions[currentIndex];
   const currentSpokenWord = spokenWordForQuestion(currentQuestion);
   const answered = selectedIndex !== null;
   const isCurrentAnswerCorrect = answered && currentQuestion && selectedIndex === currentQuestion.answerIndex;
