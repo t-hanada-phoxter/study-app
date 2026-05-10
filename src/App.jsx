@@ -738,6 +738,20 @@ function markHistoryBackupPending(userName) {
   saveBackupMeta(meta);
 }
 
+function markHistoryBackupAttempt(userName, payload, body, method) {
+  const meta = loadBackupMeta();
+  meta[userName] = {
+    ...(meta[userName] || {}),
+    lastAttemptAt: Date.now(),
+    lastAttemptMethod: method,
+    lastPayloadBytes: body.length,
+    lastPayloadType: payload.type || "",
+    lastChangeCount: payload.changes?.length || 0,
+    lastStatus: "sending",
+  };
+  saveBackupMeta(meta);
+}
+
 function markHistoryBackupDone(userName) {
   const meta = loadBackupMeta();
   meta[userName] = {
@@ -748,6 +762,34 @@ function markHistoryBackupDone(userName) {
     lastError: "",
   };
   saveBackupMeta(meta);
+}
+
+function sendBackupPayload(userName, payload, clearQueueOnAttempt = true) {
+  const body = JSON.stringify(payload);
+  const canBeacon = body.length < 60000 && typeof navigator !== "undefined" && navigator.sendBeacon;
+
+  if (canBeacon) {
+    const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
+    if (navigator.sendBeacon(HISTORY_BACKUP_URL, blob)) {
+      markHistoryBackupAttempt(userName, payload, body, "sendBeacon");
+      if (clearQueueOnAttempt) clearQueuedBackups(userName);
+      markHistoryBackupDone(userName);
+      return;
+    }
+  }
+
+  markHistoryBackupAttempt(userName, payload, body, "fetch-no-cors");
+  fetch(HISTORY_BACKUP_URL, {
+    method: "POST",
+    mode: "no-cors",
+    body,
+    keepalive: body.length < 60000,
+  })
+    .then(() => {
+      if (clearQueueOnAttempt) clearQueuedBackups(userName);
+      markHistoryBackupDone(userName);
+    })
+    .catch((error) => markHistoryBackupFailed(userName, error));
 }
 
 function markHistoryBackupFailed(userName, error) {
@@ -794,18 +836,7 @@ function backupHistory(userName, history, force = false, snapshot = false) {
     return;
   }
 
-  fetch(HISTORY_BACKUP_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload),
-    keepalive: true,
-  })
-    .then(() => {
-      clearQueuedBackups(userName);
-      markHistoryBackupDone(userName);
-    })
-    .catch((error) => markHistoryBackupFailed(userName, error));
+  sendBackupPayload(userName, payload, true);
 }
 
 function replaceSpreadsheetHistory(userName, history) {
@@ -828,18 +859,7 @@ function replaceSpreadsheetHistory(userName, history) {
     },
   };
 
-  fetch(HISTORY_BACKUP_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload),
-    keepalive: true,
-  })
-    .then(() => {
-      clearQueuedBackups(userName);
-      markHistoryBackupDone(userName);
-    })
-    .catch((error) => markHistoryBackupFailed(userName, error));
+  sendBackupPayload(userName, payload, true);
 }
 
 function getQuestionHistory(history, questionId) {
@@ -1813,7 +1833,7 @@ export default function App() {
 
   function nextQuestion(historyToSave = history) {
     if (currentIndex >= sessionQuestions.length - 1) {
-      backupHistory(userName, historyToSave, true, true);
+      backupHistory(userName, historyToSave, true, false);
       setScreen("result");
       return;
     }
@@ -1837,7 +1857,7 @@ export default function App() {
       screen === "study" && selectedIndex !== null && answerMeta
         ? finalizeCurrentAnswer(false)
         : null;
-    backupHistory(userName, finalized?.history || history, true, true);
+    backupHistory(userName, finalized?.history || history, true, false);
     setScreen("result");
   }
 
