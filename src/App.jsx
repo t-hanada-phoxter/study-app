@@ -1105,10 +1105,22 @@ function categorySelectionId(userName, subject, unit) {
   return [userName || "default", subject || "", unit || ""].join("\u001f");
 }
 
+function categorySelectionFallbackIds(subject, unit) {
+  return [
+    ["device", subject || "", unit || ""].join("\u001f"),
+    ["unit", unit || ""].join("\u001f"),
+  ];
+}
+
 function loadLargeCategorySelection(userName, subject, unit) {
   try {
     const saved = JSON.parse(localStorage.getItem(LARGE_CATEGORY_SELECTION_KEY) || "{}");
-    return saved[categorySelectionId(userName, subject, unit)] || "";
+    return (
+      saved[categorySelectionId(userName, subject, unit)] ??
+      saved[categorySelectionFallbackIds(subject, unit)[0]] ??
+      saved[categorySelectionFallbackIds(subject, unit)[1]] ??
+      ""
+    );
   } catch {
     return "";
   }
@@ -1117,7 +1129,11 @@ function loadLargeCategorySelection(userName, subject, unit) {
 function saveLargeCategorySelection(userName, subject, unit, category) {
   try {
     const saved = JSON.parse(localStorage.getItem(LARGE_CATEGORY_SELECTION_KEY) || "{}");
-    saved[categorySelectionId(userName, subject, unit)] = category || "";
+    const value = category || "";
+    saved[categorySelectionId(userName, subject, unit)] = value;
+    for (const id of categorySelectionFallbackIds(subject, unit)) {
+      saved[id] = value;
+    }
     localStorage.setItem(LARGE_CATEGORY_SELECTION_KEY, JSON.stringify(saved));
   } catch {
     // localStorage can be unavailable in private browsing; selection memory is optional.
@@ -1298,6 +1314,7 @@ export default function App() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const answerInputRef = useRef(null);
   const weakToggleGestureRef = useRef({ skipClick: false });
+  const restoredLargeCategoryKeyRef = useRef("");
   const currentQuestion = sessionQuestions[currentIndex];
 
   function speakWord(word, force = false) {
@@ -1520,6 +1537,20 @@ export default function App() {
   const historyLoadMeta = userName ? loadHistoryLoadMeta()[userName] || {} : {};
   const backupConfigured = Boolean(HISTORY_BACKUP_URL);
 
+  useEffect(() => {
+    if (screen !== "filters" || !subject || !unit || largeCategories.length === 0) return;
+    const restoreKey = categorySelectionId(userName, subject, unit);
+    if (restoredLargeCategoryKeyRef.current === restoreKey) return;
+
+    const savedLargeCategory = loadLargeCategorySelection(userName, subject, unit);
+    const restoredLargeCategory = largeCategories.includes(savedLargeCategory) ? savedLargeCategory : "";
+    restoredLargeCategoryKeyRef.current = restoreKey;
+    if (largeCategory !== restoredLargeCategory) {
+      setLargeCategory(restoredLargeCategory);
+      setMiddleCategory("");
+    }
+  }, [screen, userName, subject, unit, largeCategories, largeCategory]);
+
   function login(name) {
     const fixedName = String(name || "").trim();
     if (!fixedName) return;
@@ -1544,6 +1575,7 @@ export default function App() {
     setMiddleCategory("");
     setSelectedTag("");
     setSelectedDifficulty("");
+    restoredLargeCategoryKeyRef.current = "";
     setScreen("units");
   }
 
@@ -1568,6 +1600,7 @@ export default function App() {
     setAnswerFormat(ANSWER_FORMATS.CHOICE);
     setQuestionListVisible(false);
     setRevealedListAnswers({});
+    restoredLargeCategoryKeyRef.current = "";
     setScreen("filters");
   }
 
@@ -1713,7 +1746,7 @@ export default function App() {
     });
   }
 
-  function finishAnswer(markHesitated) {
+  function finalizeCurrentAnswer(markHesitated) {
     if (selectedIndex === null || !answerMeta) return;
 
     const q = sessionQuestions[currentIndex];
@@ -1731,16 +1764,24 @@ export default function App() {
       },
     }));
     const newHistory = updateHistory(userName, history, q.id, isCorrect, meta);
+    const newResult = {
+      ...result,
+      correct: result.correct + (isCorrect ? 1 : 0),
+      wrong: result.wrong + (isCorrect ? 0 : 1),
+    };
 
     setHistory(newHistory);
-    setResult((prev) => ({
-      ...prev,
-      correct: prev.correct + (isCorrect ? 1 : 0),
-      wrong: prev.wrong + (isCorrect ? 0 : 1),
-    }));
+    setResult(newResult);
     setSessionStreak(isCorrect ? sessionStreak + 1 : 0);
 
-    nextQuestion(newHistory);
+    return { history: newHistory, result: newResult };
+  }
+
+  function finishAnswer(markHesitated) {
+    const finalized = finalizeCurrentAnswer(markHesitated);
+    if (!finalized) return;
+
+    nextQuestion(finalized.history);
   }
 
   function goPreviousQuestion() {
@@ -1792,7 +1833,11 @@ export default function App() {
   }
 
   function finishSession() {
-    backupHistory(userName, history, true, true);
+    const finalized =
+      screen === "study" && selectedIndex !== null && answerMeta
+        ? finalizeCurrentAnswer(false)
+        : null;
+    backupHistory(userName, finalized?.history || history, true, true);
     setScreen("result");
   }
 
