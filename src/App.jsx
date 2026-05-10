@@ -1128,6 +1128,7 @@ export default function App() {
   const [historyCheckpoints, setHistoryCheckpoints] = useState({});
   const [speechMuted, setSpeechMuted] = useState(() => localStorage.getItem(SPEECH_MUTED_KEY) === "true");
   const [questionListVisible, setQuestionListVisible] = useState(false);
+  const [revealedListAnswers, setRevealedListAnswers] = useState({});
   const [headerVisible, setHeaderVisible] = useState(false);
   const [result, setResult] = useState({ total: 0, correct: 0, wrong: 0 });
   const [sessionStreak, setSessionStreak] = useState(0);
@@ -1374,6 +1375,7 @@ export default function App() {
     setSelectedDifficulty("");
     setAnswerFormat(ANSWER_FORMATS.CHOICE);
     setQuestionListVisible(false);
+    setRevealedListAnswers({});
     setScreen("filters");
   }
 
@@ -1878,7 +1880,7 @@ export default function App() {
                     onClick={() => setQuestionListVisible((visible) => !visible)}
                     disabled={stat.total === 0}
                   >
-                    {questionListVisible ? "リストを閉じる" : "リストで表示"}
+                    {questionListVisible ? "リストを閉じる" : "リストを表示"}
                   </button>
                 </section>
                 {questionListVisible && (
@@ -1891,8 +1893,20 @@ export default function App() {
                         const weak = isWeakQuestion(q, history);
                         const slow = isSlowQuestion(q, history);
                         const cls = `questionPreviewItem${weak ? " isWeak" : ""}${slow ? " isSlow" : ""}`;
+                        const revealed = Boolean(revealedListAnswers[q.id]);
+                        const answerText = q.choices?.[q.answerIndex] || "";
                         return (
-                          <div key={q.id} className={cls}>
+                          <button
+                            key={q.id}
+                            type="button"
+                            className={cls}
+                            onClick={() =>
+                              setRevealedListAnswers((prev) => ({
+                                ...prev,
+                                [q.id]: !prev[q.id],
+                              }))
+                            }
+                          >
                             <span>{index + 1}</span>
                             <div>
                               <div className="questionPreviewHeader">
@@ -1908,7 +1922,8 @@ export default function App() {
                                 {h ? ` / 実施済み ${h.answeredCount || 0}回 / ○${h.correct || 0} ×${h.wrong || 0}` : " / 未実施"}
                               </small>
                             </div>
-                          </div>
+                            <aside className={revealed ? "isVisible" : ""}>{answerText}</aside>
+                          </button>
                         );
                       })}
                     </div>
