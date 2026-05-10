@@ -646,6 +646,14 @@ button { cursor: pointer; }
   overflow-wrap: anywhere;
 }
 
+.studyCounters .questionIdNumber {
+  color: #c2410c;
+  background: #ffedd5;
+  border: 1px solid #fed7aa;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
 .progressBar {
   height: 8px;
   background: #ffedd5;
@@ -964,6 +972,18 @@ button { cursor: pointer; }
 .modalActions .bigPrimary,
 .modalActions .bigSecondary {
   margin-top: 0;
+}
+
+.modalFinishButton {
+  width: 100%;
+  border: 1px solid #fed7aa;
+  border-radius: 18px;
+  padding: 13px 14px;
+  margin-top: 10px;
+  color: #9a3412;
+  background: #fff7ed;
+  font-size: 15px;
+  font-weight: 1000;
 }
 
 .modalActions .suggested {

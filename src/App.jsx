@@ -19,6 +19,7 @@ const BACKUP_META_KEY = "studyApp.historyBackupMeta.v1";
 const BACKUP_QUEUE_KEY = "studyApp.historyBackupQueue.v1";
 const HISTORY_LOAD_META_KEY = "studyApp.historyLoadMeta.v1";
 const SPEECH_MUTED_KEY = "studyApp.speechMuted.v1";
+const LARGE_CATEGORY_SELECTION_KEY = "studyApp.largeCategorySelection.v1";
 const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
@@ -1092,8 +1093,35 @@ function compareQuestionId(a, b) {
 }
 
 function questionListNumber(q, index) {
-  const match = String(q.id || "").match(/_(\d+)$/);
-  return match ? match[1] : String(index + 1);
+  return questionIdSuffixNumber(q) || String(index + 1);
+}
+
+function questionIdSuffixNumber(q) {
+  const match = String(q?.id || "").match(/_(\d+)$/);
+  return match ? match[1] : "";
+}
+
+function categorySelectionId(userName, subject, unit) {
+  return [userName || "default", subject || "", unit || ""].join("\u001f");
+}
+
+function loadLargeCategorySelection(userName, subject, unit) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LARGE_CATEGORY_SELECTION_KEY) || "{}");
+    return saved[categorySelectionId(userName, subject, unit)] || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveLargeCategorySelection(userName, subject, unit, category) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LARGE_CATEGORY_SELECTION_KEY) || "{}");
+    saved[categorySelectionId(userName, subject, unit)] = category || "";
+    localStorage.setItem(LARGE_CATEGORY_SELECTION_KEY, JSON.stringify(saved));
+  } catch {
+    // localStorage can be unavailable in private browsing; selection memory is optional.
+  }
 }
 
 function scoreQuestion(q, history) {
@@ -1509,14 +1537,33 @@ export default function App() {
   }
 
   function selectUnit(nextUnit) {
+    const availableLargeCategories = unique(
+      questions
+        .filter(
+          (q) =>
+            q.subject === subject &&
+            q.unit === nextUnit &&
+            matchesTag(q, selectedTag) &&
+            matchesDifficulty(q, "")
+        )
+        .map((q) => q.largeCategory)
+    );
+    const savedLargeCategory = loadLargeCategorySelection(userName, subject, nextUnit);
+    const restoredLargeCategory = availableLargeCategories.includes(savedLargeCategory) ? savedLargeCategory : "";
     setUnit(nextUnit);
-    setLargeCategory("");
+    setLargeCategory(restoredLargeCategory);
     setMiddleCategory("");
     setSelectedDifficulty("");
     setAnswerFormat(ANSWER_FORMATS.CHOICE);
     setQuestionListVisible(false);
     setRevealedListAnswers({});
     setScreen("filters");
+  }
+
+  function selectLargeCategory(nextLargeCategory) {
+    setLargeCategory(nextLargeCategory);
+    setMiddleCategory("");
+    saveLargeCategorySelection(userName, subject, unit, nextLargeCategory);
   }
 
   function focusDirectAnswerInput() {
@@ -1789,6 +1836,7 @@ export default function App() {
   }
 
   const currentSpokenWord = spokenWordForQuestion(currentQuestion);
+  const currentQuestionNumber = questionIdSuffixNumber(currentQuestion);
   const answered = selectedIndex !== null;
   const isCurrentAnswerCorrect = answered && currentQuestion && selectedIndex === currentQuestion.answerIndex;
   const previewStreak = isCurrentAnswerCorrect ? sessionStreak + 1 : 0;
@@ -1988,8 +2036,7 @@ export default function App() {
             <button
               className={largeCategory === "" ? "active" : ""}
               onClick={() => {
-                setLargeCategory("");
-                setMiddleCategory("");
+                selectLargeCategory("");
               }}
             >
               すべて
@@ -1999,8 +2046,7 @@ export default function App() {
                 key={category}
                 className={largeCategory === category ? "active" : ""}
                 onClick={() => {
-                  setLargeCategory(category);
-                  setMiddleCategory("");
+                  selectLargeCategory(category);
                 }}
               >
                 {category}
@@ -2178,6 +2224,7 @@ export default function App() {
                   {currentQuestion.largeCategory} {currentLargeCategoryIndex}/{currentLargeCategoryQuestions.length}
                 </small>
               )}
+              {currentQuestionNumber && <small className="questionIdNumber">No. {currentQuestionNumber}</small>}
             </div>
           </div>
           <div className="progressBar"><div style={{ width: `${((currentIndex + 1) / sessionQuestions.length) * 100}%` }} /></div>
@@ -2308,6 +2355,9 @@ export default function App() {
                     {currentIndex >= sessionQuestions.length - 1 ? "結果を見る" : "次へ"}
                   </button>
                 </div>
+                <button className="modalFinishButton" onClick={finishSession}>
+                  終了
+                </button>
               </section>
             </div>
           )}
