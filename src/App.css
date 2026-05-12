@@ -715,35 +715,57 @@ button { cursor: pointer; }
 }
 
 .questionPanel {
-  min-height: 132px;
+  min-height: 118px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 18px 16px;
+  padding: 14px 16px;
   margin-bottom: 10px;
 }
 
+.questionMetaBar {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
 .modeLabel {
-  margin: 0 0 8px;
+  flex: 0 0 auto;
   color: var(--orange);
   font-size: 13px;
+  line-height: 1;
+  font-weight: 1000;
+}
+
+.reviewNotice {
+  flex: 0 0 auto;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #c2410c;
+  background: #ffedd5;
+  font-size: 12px;
+  line-height: 1;
   font-weight: 1000;
 }
 
 .speechControls {
+  margin-left: auto;
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin: -2px 0 10px;
+  gap: 5px;
 }
 
 .speechControls button {
   border: 1px solid #fed7aa;
   border-radius: 999px;
-  padding: 7px 10px;
+  padding: 6px 8px;
   color: #9a3412;
   background: #fff7ed;
   font-size: 12px;
+  line-height: 1;
   font-weight: 1000;
 }
 

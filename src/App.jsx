@@ -24,6 +24,7 @@ const CHOICE_DELAY_MS = 1000;
 const QUICK_ANSWER_MS = 3500;
 const SLOW_ANSWER_MS = 3000;
 const SESSION_SIZE = 25;
+const RECOMMENDED_REVIEW_LIMIT = 5;
 const HISTORY_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const HISTORY_BACKUP_EVERY_ANSWERS = 5;
 const DEFAULT_USERS = ["IT", "TM", "YK", "HR", "IC", "OT"];
@@ -1257,6 +1258,17 @@ function weightedRandomQuestions(questions, history) {
   return selected;
 }
 
+function recommendedQuestions(questions, history) {
+  let reviewCount = 0;
+  return [...questions]
+    .sort((a, b) => scoreQuestion(b, history) - scoreQuestion(a, history))
+    .filter((q) => {
+      if (!isReviewDue(q, history)) return true;
+      reviewCount += 1;
+      return reviewCount <= RECOMMENDED_REVIEW_LIMIT;
+    });
+}
+
 function filterByMode(questions, history, mode) {
   if (mode === "weak") {
     return questions
@@ -1280,7 +1292,7 @@ function filterByMode(questions, history, mode) {
       .sort((a, b) => scoreQuestion(b, history) - scoreQuestion(a, history));
   }
 
-  return [...questions].sort((a, b) => scoreQuestion(b, history) - scoreQuestion(a, history));
+  return recommendedQuestions(questions, history);
 }
 
 function unique(values) {
@@ -1694,11 +1706,15 @@ export default function App() {
     );
     const filtered = filterByMode(base, history, targetMode);
     const list = targetMode === "normal" && filtered.length === 0 ? base : filtered;
+    const sessionList = list.map((q) => ({
+      ...q,
+      sessionReview: targetMode === "normal" && isReviewDue(q, history),
+    }));
     const nextAnswerFormat =
-      answerFormat === ANSWER_FORMATS.INPUT && list.every(supportsDirectInput)
+      answerFormat === ANSWER_FORMATS.INPUT && sessionList.every(supportsDirectInput)
         ? ANSWER_FORMATS.INPUT
         : ANSWER_FORMATS.CHOICE;
-    if (list.length === 0) {
+    if (sessionList.length === 0) {
       alert(targetMode === "review" ? "今日の復習対象はありません。" : "条件に合う問題はありません。");
       return;
     }
@@ -1706,14 +1722,14 @@ export default function App() {
     const applyStudyState = () => {
       setMode(targetMode);
       setAnswerFormat(nextAnswerFormat);
-      setSessionQuestions(list.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
+      setSessionQuestions(sessionList.slice(0, SESSION_SIZE).map(prepareQuestionForSession));
       setCurrentIndex(0);
       setSelectedIndex(null);
       setTypedAnswer("");
       setAnswerMeta(null);
       setHistoryCheckpoints({});
       setSessionStreak(0);
-      setResult({ total: Math.min(list.length, SESSION_SIZE), correct: 0, wrong: 0 });
+      setResult({ total: Math.min(sessionList.length, SESSION_SIZE), correct: 0, wrong: 0 });
       setScreen("study");
     };
 
@@ -2368,29 +2384,32 @@ export default function App() {
           <div className="progressBar"><div style={{ width: `${((currentIndex + 1) / sessionQuestions.length) * 100}%` }} /></div>
 
           <section className="questionPanel">
-            <p className="modeLabel">
-              {mode === "review"
-                ? "復習タイミング"
-                : mode === "normal"
-                  ? "おすすめ"
-                  : mode === "random"
-                    ? "ランダム"
-                    : mode === "weak"
-                      ? "苦手問題"
-                      : mode === "slow"
-                        ? "遅答問題"
-                        : "未学習"}
-            </p>
-            {currentSpokenWord && (
-              <div className="speechControls" aria-label="音声">
-                <button type="button" onClick={toggleSpeechMuted}>
-                  {speechMuted ? "音声オフ" : "音声オン"}
-                </button>
-                <button type="button" onClick={() => speakWord(currentSpokenWord, true)}>
-                  再生
-                </button>
-              </div>
-            )}
+            <div className="questionMetaBar">
+              <span className="modeLabel">
+                {mode === "review"
+                  ? "復習タイミング"
+                  : mode === "normal"
+                    ? "おすすめ"
+                    : mode === "random"
+                      ? "ランダム"
+                      : mode === "weak"
+                        ? "苦手問題"
+                        : mode === "slow"
+                          ? "遅答問題"
+                          : "未学習"}
+              </span>
+              {currentQuestion.sessionReview && <span className="reviewNotice">復習問題</span>}
+              {currentSpokenWord && (
+                <div className="speechControls" aria-label="音声">
+                  <button type="button" onClick={toggleSpeechMuted}>
+                    {speechMuted ? "音声オフ" : "音声オン"}
+                  </button>
+                  <button type="button" onClick={() => speakWord(currentSpokenWord, true)}>
+                    再生
+                  </button>
+                </div>
+              )}
+            </div>
             <h2 className={questionSizeClass(currentQuestion.question)}>{currentQuestion.question}</h2>
             {currentQuestion.tags?.length > 0 && (
               <div className="questionTags">
